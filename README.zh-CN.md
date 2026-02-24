@@ -43,7 +43,7 @@
 
 - 后端：FastAPI + SQLModel + SQLite
 - 工作流/模型编排：LangChain + LangGraph
-- 改写/审核模型：MiniMax 兼容 OpenAI API
+- 改写/审核模型：兼容 OpenAI 协议的模型服务
 - RAG 向量化：SiliconFlow Embedding + Chroma
 - 封面生图：火山引擎（Volcengine）API
 - 前端：React + TypeScript + Vite
@@ -68,8 +68,8 @@
 ### 1. 拉取代码
 
 ```bash
-git clone https://github.com/<your-org>/<repo>.git
-cd <repo>
+git clone https://github.com/guoguo-tju/write_agent.git
+cd write_agent
 ```
 
 ### 2. 后端安装与启动
@@ -89,10 +89,10 @@ API_PORT=8000
 DEBUG=true
 LOG_LEVEL=INFO
 
-# LLM（MiniMax 兼容接口）
-MINIMAX_API_KEY=your_minimax_api_key
-MINIMAX_BASE_URL=https://api.minimax.chat/v1
-MINIMAX_MODEL=MiniMax-M2.1
+# LLM（OpenAI 兼容接口）
+OPENAI_API_KEY=your_openai_compatible_api_key
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o-mini
 
 # Embedding（RAG 素材向量化）
 SILICONFLOW_API_KEY=your_siliconflow_api_key
@@ -148,7 +148,7 @@ npm run dev
 
 ### 全功能必填
 
-- `MINIMAX_API_KEY`：风格提取、改写、审核依赖。
+- `OPENAI_API_KEY`：风格提取、改写、审核依赖。
 - `VOLCENGINE_API_KEY`：封面生图依赖。
 - `SILICONFLOW_API_KEY`：素材向量化与检索依赖。
 
@@ -160,6 +160,7 @@ npm run dev
 - `DEBUG`（默认 `true`）
 - `LOG_LEVEL`（默认 `INFO`）
 - 各 Provider 的 Base URL 与模型名（代码中有默认值）。
+- 兼容说明：历史 `MINIMAX_*` 环境变量仍可用。
 
 ## 运行与验证
 
@@ -318,7 +319,7 @@ data/chroma/
 
 ### 后端启动正常，但风格提取/改写/审核失败
 
-优先检查 `.env` 中的 `MINIMAX_API_KEY` 和 `MINIMAX_BASE_URL`。
+优先检查 `.env` 中的 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。
 
 ### 素材创建成功，但向量检索为空或失败
 

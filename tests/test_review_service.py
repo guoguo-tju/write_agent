@@ -19,7 +19,7 @@ from sqlmodel import Session, create_engine, select
 
 # 设置环境变量（必须在导入前）
 os.environ["DATABASE_URL"] = "sqlite:///./data/test_write_agent.db"
-os.environ["MINIMAX_API_KEY"] = "test-key"
+os.environ["OPENAI_API_KEY"] = "test-key"
 os.environ["SILICONFLOW_API_KEY"] = "test-key"
 
 from write_agent.models.review_record import ReviewRecord

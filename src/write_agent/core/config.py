@@ -1,9 +1,9 @@
 """
 配置管理 - 类似 Java 的 @ConfigurationProperties
 """
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
-from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     # API 配置
@@ -19,10 +20,20 @@ class Settings(BaseSettings):
     api_port: int = 8000
     debug: bool = True
 
-    # MiniMax API 配置
-    minimax_api_key: str = ""
-    minimax_base_url: str = "https://api.minimax.chat/v1"
-    minimax_model: str = "MiniMax-M2.1"
+    # OpenAI 兼容 API 配置
+    # 保留 MINIMAX_* 作为兼容别名，避免历史环境变量立即失效。
+    openai_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("OPENAI_API_KEY", "MINIMAX_API_KEY"),
+    )
+    openai_base_url: str = Field(
+        default="https://api.openai.com/v1",
+        validation_alias=AliasChoices("OPENAI_BASE_URL", "MINIMAX_BASE_URL"),
+    )
+    openai_model: str = Field(
+        default="gpt-4o-mini",
+        validation_alias=AliasChoices("OPENAI_MODEL", "MINIMAX_MODEL"),
+    )
 
     # 硅基流动 Embedding API 配置
     siliconflow_api_key: str = ""

@@ -43,7 +43,7 @@ AI writing assistant with style extraction, RAG-enhanced rewriting, review workf
 
 - Backend: FastAPI + SQLModel + SQLite
 - Workflow/LLM orchestration: LangChain + LangGraph
-- Rewrite/Review model provider: MiniMax-compatible OpenAI API
+- Rewrite/Review model provider: OpenAI-compatible API provider
 - RAG Embeddings: SiliconFlow API + Chroma
 - Cover generation: Volcengine image generation API
 - Frontend: React + TypeScript + Vite
@@ -68,8 +68,8 @@ This README covers local deployment only.
 ### 1. Clone
 
 ```bash
-git clone https://github.com/<your-org>/<repo>.git
-cd <repo>
+git clone https://github.com/guoguo-tju/write_agent.git
+cd write_agent
 ```
 
 ### 2. Backend setup
@@ -89,10 +89,10 @@ API_PORT=8000
 DEBUG=true
 LOG_LEVEL=INFO
 
-# LLM (MiniMax-compatible endpoint)
-MINIMAX_API_KEY=your_minimax_api_key
-MINIMAX_BASE_URL=https://api.minimax.chat/v1
-MINIMAX_MODEL=MiniMax-M2.1
+# LLM (OpenAI-compatible endpoint)
+OPENAI_API_KEY=your_openai_compatible_api_key
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o-mini
 
 # Embeddings (for RAG materials)
 SILICONFLOW_API_KEY=your_siliconflow_api_key
@@ -148,7 +148,7 @@ Open:
 
 ### Required for full features
 
-- `MINIMAX_API_KEY`: rewrite/review/style extraction.
+- `OPENAI_API_KEY`: rewrite/review/style extraction.
 - `VOLCENGINE_API_KEY`: cover image generation.
 - `SILICONFLOW_API_KEY`: material embedding and vector retrieval.
 
@@ -160,6 +160,7 @@ Open:
 - `DEBUG` (default: `true`)
 - `LOG_LEVEL` (default: `INFO`)
 - Provider base URLs and model names (have defaults in code).
+- Backward compatibility: legacy `MINIMAX_*` env vars are still accepted.
 
 ## Run and Verify
 
@@ -318,7 +319,7 @@ data/chroma/
 
 ### Backend starts but rewrite/review/style extraction fails
 
-Check `MINIMAX_API_KEY` and `MINIMAX_BASE_URL` in `.env`.
+Check `OPENAI_API_KEY` and `OPENAI_BASE_URL` in `.env`.
 
 ### Material creation works but vector retrieval is empty or failed
 

@@ -3,7 +3,6 @@ LLM 服务封装 - 统一调用大模型
 """
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
 from typing import Optional
 
 from write_agent.core import get_settings, get_logger
@@ -22,11 +21,11 @@ class LLMService:
     def __init__(self):
         """初始化 LLM 客户端"""
         self.llm = ChatOpenAI(
-            model=settings.minimax_model,
-            openai_api_key=settings.minimax_api_key,
-            base_url=settings.minimax_base_url
+            model=settings.openai_model,
+            openai_api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url
         )
-        logger.info(f"LLM 服务初始化完成，使用模型: {settings.minimax_model}")
+        logger.info(f"LLM 服务初始化完成，使用模型: {settings.openai_model}")
 
     def chat(
         self,

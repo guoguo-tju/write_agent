@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # 设置测试环境变量
 os.environ["DATABASE_URL"] = "sqlite:///./data/test_write_agent.db"
-os.environ["MINIMAX_API_KEY"] = "test-key"
+os.environ["OPENAI_API_KEY"] = "test-key"
 os.environ["SILICONFLOW_API_KEY"] = "test-key"
 
 
