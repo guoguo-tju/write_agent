@@ -13,7 +13,6 @@
 - [环境变量](#环境变量)
 - [运行与验证](#运行与验证)
 - [使用流程](#使用流程)
-- [API 概览](#api-概览)
 - [项目结构](#项目结构)
 - [安全说明（开源前必看）](#安全说明开源前必看)
 - [常见问题](#常见问题)
@@ -215,75 +214,9 @@ PYTHONPATH=src .venv/bin/pytest
    - 生成封面
 6. 在封面历史中验证图片与下载链接。
 
-## API 概览
-
-统一前缀：`/api`
-
-### 风格（Styles）
-
-- `POST /api/styles/extract`
-- `POST /api/styles/extract/stream`（SSE）
-- `GET /api/styles`
-- `GET /api/styles/{style_id}`
-- `DELETE /api/styles/{style_id}`
-
-### 素材（Materials）
-
-- `POST /api/materials`
-- `GET /api/materials`
-- `GET /api/materials/{material_id}`
-- `DELETE /api/materials/{material_id}`
-
-### 改写（Rewrites）
-
-- `POST /api/rewrites`（SSE）
-- `GET /api/rewrites/stream`（SSE）
-- `GET /api/rewrites`
-- `GET /api/rewrites/{rewrite_id}`
-
-### 审核与工作流（Reviews / Workflow）
-
-- `POST /api/reviews`（SSE）
-- `GET /api/reviews/stream`（SSE）
-- `POST /api/reviews/workflow`（SSE）
-- `POST /api/reviews/workflow/resume`
-- `POST /api/reviews/manual-edit`
-- `GET /api/reviews/manual-edit/{review_id}`
-- `GET /api/reviews/{review_id}`
-- `GET /api/reviews/rewrite/{rewrite_id}`
-
-### 封面（Covers）
-
-- `POST /api/covers`（SSE）
-- `GET /api/covers/stream`（SSE）
-- `GET /api/covers/by-rewrites`
-- `GET /api/covers/{cover_id}`
-- `GET /api/covers/rewrite/{rewrite_id}`
-
-### 封面风格（Cover Styles）
-
-- `POST /api/covers/styles`
-- `GET /api/covers/styles`
-- `GET /api/covers/styles/{style_id}`
-- `DELETE /api/covers/styles/{style_id}`
-
-### SSE 事件契约
-
-通用流式格式：
-
-```text
-data: {"type":"start", ...}
-data: {"type":"content","delta":"..."}
-data: {"type":"done", ...}
-data: {"type":"error","message":"..."}
-```
-
-已知事件类型：
-
-- 风格提取：`start`、`progress`、`content`、`done`、`error`
-- 改写：`start`、`progress`、`content`、`done`、`error`
-- 审核：`start`、`content`、`done`、`error`
-- 封面：`start`、`prompt`、`prompt_done`、`saving`、`generating`、`done`、`error`
+API 细节请在服务启动后查看 FastAPI OpenAPI 文档：
+- `http://127.0.0.1:8000/docs`
+- `http://127.0.0.1:8000/redoc`
 
 ## 项目结构
 

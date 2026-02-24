@@ -13,7 +13,6 @@ AI writing assistant with style extraction, RAG-enhanced rewriting, review workf
 - [Environment Variables](#environment-variables)
 - [Run and Verify](#run-and-verify)
 - [Usage Guide](#usage-guide)
-- [API Overview](#api-overview)
 - [Project Structure](#project-structure)
 - [Security Notes (Before Open Source)](#security-notes-before-open-source)
 - [FAQ and Troubleshooting](#faq-and-troubleshooting)
@@ -215,75 +214,9 @@ After deployment, run this end-to-end path in the UI:
    - generate cover
 6. Verify generated cover history and downloadable image links.
 
-## API Overview
-
-Base prefix: `/api`
-
-### Styles
-
-- `POST /api/styles/extract`
-- `POST /api/styles/extract/stream` (SSE)
-- `GET /api/styles`
-- `GET /api/styles/{style_id}`
-- `DELETE /api/styles/{style_id}`
-
-### Materials
-
-- `POST /api/materials`
-- `GET /api/materials`
-- `GET /api/materials/{material_id}`
-- `DELETE /api/materials/{material_id}`
-
-### Rewrites
-
-- `POST /api/rewrites` (SSE)
-- `GET /api/rewrites/stream` (SSE)
-- `GET /api/rewrites`
-- `GET /api/rewrites/{rewrite_id}`
-
-### Reviews and Workflow
-
-- `POST /api/reviews` (SSE)
-- `GET /api/reviews/stream` (SSE)
-- `POST /api/reviews/workflow` (SSE)
-- `POST /api/reviews/workflow/resume`
-- `POST /api/reviews/manual-edit`
-- `GET /api/reviews/manual-edit/{review_id}`
-- `GET /api/reviews/{review_id}`
-- `GET /api/reviews/rewrite/{rewrite_id}`
-
-### Covers
-
-- `POST /api/covers` (SSE)
-- `GET /api/covers/stream` (SSE)
-- `GET /api/covers/by-rewrites`
-- `GET /api/covers/{cover_id}`
-- `GET /api/covers/rewrite/{rewrite_id}`
-
-### Cover Styles
-
-- `POST /api/covers/styles`
-- `GET /api/covers/styles`
-- `GET /api/covers/styles/{style_id}`
-- `DELETE /api/covers/styles/{style_id}`
-
-### SSE event contracts
-
-Typical event stream format:
-
-```text
-data: {"type":"start", ...}
-data: {"type":"content","delta":"..."}
-data: {"type":"done", ...}
-data: {"type":"error","message":"..."}
-```
-
-Known event types by module:
-
-- Style extraction: `start`, `progress`, `content`, `done`, `error`
-- Rewrite: `start`, `progress`, `content`, `done`, `error`
-- Review: `start`, `content`, `done`, `error`
-- Cover: `start`, `prompt`, `prompt_done`, `saving`, `generating`, `done`, `error`
+API details are documented in FastAPI OpenAPI docs after startup:
+- `http://127.0.0.1:8000/docs`
+- `http://127.0.0.1:8000/redoc`
 
 ## Project Structure
 
