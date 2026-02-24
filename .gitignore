@@ -1,0 +1,88 @@
+# ------------------------------
+# Python artifacts
+# ------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+wheels/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test / lint / runtime caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ------------------------------
+# Secrets and local env
+# ------------------------------
+.env
+.env.*
+!.env.example
+!.env.template
+
+# ------------------------------
+# Editor / OS
+# ------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ------------------------------
+# Frontend artifacts
+# ------------------------------
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.env.local
+frontend/.env.*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Root accidental npm lock (no root package.json)
+/package-lock.json
+
+# ------------------------------
+# Local data and generated stores
+# ------------------------------
+/data/*.db
+/data/chroma/
+/src/data/*.db
+/src/data/chroma/
+*.sqlite3
+
+# Browser automation outputs
+.playwright-cli/
+playwright-report/
+test-results/
+
+# Local agent/tooling workspace files
+.claude/
+
+# Local planning / preview artifacts
+/task_plan.md
+/preview.html
+
+# Internal product/design docs (not required for OSS release)
+/design-system/
+/docs/plans/
