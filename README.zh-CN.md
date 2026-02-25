@@ -79,33 +79,16 @@ cd write_agent
 uv sync
 ```
 
-在仓库根目录创建或更新 `.env`：
+先基于模板创建 `.env`：
 
-```dotenv
-# API
-API_HOST=0.0.0.0
-API_PORT=8000
-DEBUG=true
-LOG_LEVEL=INFO
-
-# LLM（OpenAI 兼容接口）
-OPENAI_API_KEY=your_openai_compatible_api_key
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
-
-# Embedding（RAG 素材向量化）
-SILICONFLOW_API_KEY=your_siliconflow_api_key
-SILICONFLOW_BASE_URL=https://api.siliconflow.cn
-SILICONFLOW_EMBEDDING_MODEL=BAAI/bge-m3
-
-# 封面生图
-VOLCENGINE_API_KEY=your_volcengine_api_key
-VOLCENGINE_BASE_URL=https://ark.cn-beijing.volces.com
-VOLCENGINE_MODEL=doubao-seedream-4-5-251128
-
-# 数据库
-DATABASE_URL=sqlite:///./data/acceptance_write_agent.db
+```bash
+cp .env.example .env
 ```
+
+然后编辑 `.env`，填入你自己的 API Key（至少需要）：
+- `OPENAI_API_KEY`
+- `SILICONFLOW_API_KEY`
+- `VOLCENGINE_API_KEY`
 
 创建数据库表：
 
@@ -147,6 +130,7 @@ npm run dev
 
 ### 全功能必填
 
+- 建议先复制 `.env.example` 为 `.env`，再填写密钥。
 - `OPENAI_API_KEY`：风格提取、改写、审核依赖。
 - `VOLCENGINE_API_KEY`：封面生图依赖。
 - `SILICONFLOW_API_KEY`：素材向量化与检索依赖。

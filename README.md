@@ -79,33 +79,16 @@ Install Python dependencies:
 uv sync
 ```
 
-Create or update `.env` in repository root:
+Create `.env` from template:
 
-```dotenv
-# API
-API_HOST=0.0.0.0
-API_PORT=8000
-DEBUG=true
-LOG_LEVEL=INFO
-
-# LLM (OpenAI-compatible endpoint)
-OPENAI_API_KEY=your_openai_compatible_api_key
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
-
-# Embeddings (for RAG materials)
-SILICONFLOW_API_KEY=your_siliconflow_api_key
-SILICONFLOW_BASE_URL=https://api.siliconflow.cn
-SILICONFLOW_EMBEDDING_MODEL=BAAI/bge-m3
-
-# Cover image generation
-VOLCENGINE_API_KEY=your_volcengine_api_key
-VOLCENGINE_BASE_URL=https://ark.cn-beijing.volces.com
-VOLCENGINE_MODEL=doubao-seedream-4-5-251128
-
-# Database
-DATABASE_URL=sqlite:///./data/acceptance_write_agent.db
+```bash
+cp .env.example .env
 ```
+
+Then edit `.env` and fill your own API keys (at minimum):
+- `OPENAI_API_KEY`
+- `SILICONFLOW_API_KEY`
+- `VOLCENGINE_API_KEY`
 
 Create database tables:
 
@@ -147,6 +130,7 @@ Open:
 
 ### Required for full features
 
+- Start from `.env.example`, then copy to `.env` and fill your keys.
 - `OPENAI_API_KEY`: rewrite/review/style extraction.
 - `VOLCENGINE_API_KEY`: cover image generation.
 - `SILICONFLOW_API_KEY`: material embedding and vector retrieval.
