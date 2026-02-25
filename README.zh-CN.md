@@ -1,13 +1,15 @@
 # Write Agent
 
-具备风格提取、RAG 改写、审核流程和 AI 封面生成能力的写作智能体。
+基于 FastAPI、LangChain、LangGraph、RAG 和 OpenAI 兼容接口构建的写作智能体，覆盖风格提取、改写、审核和封面生成全流程。
 
 [English](./README.md)
 
 ## 目录
 
 - [功能特性](#功能特性)
+- [界面截图](#界面截图)
 - [技术栈与架构](#技术栈与架构)
+- [搜索关键词与可发现性](#搜索关键词与可发现性)
 - [环境要求](#环境要求)
 - [快速开始](#快速开始)
 - [环境变量](#环境变量)
@@ -38,6 +40,28 @@
 - 支持封面风格管理（创建/查询/删除）。
 - 提供改写、审核、封面历史，便于追踪与验收。
 
+## 界面截图
+
+### 1）写作风格提取
+
+![写作风格页面](docs/screenshots/styles-page.png)
+
+### 2）素材库管理
+
+![素材库页面](docs/screenshots/materials-page.png)
+
+### 3）文章改写
+
+![改写页面](docs/screenshots/rewrite-page.png)
+
+### 4）审核流程
+
+![审核页面](docs/screenshots/reviews-page.png)
+
+### 5）封面生成
+
+![封面生成页面](docs/screenshots/covers-page.png)
+
 ## 技术栈与架构
 
 - 后端：FastAPI + SQLModel + SQLite
@@ -52,6 +76,31 @@
 ```text
 风格提取 -> 素材库（RAG）-> 改写（SSE）-> 审核（SSE）-> 封面（SSE）
 ```
+
+## 搜索关键词与可发现性
+
+推荐关键词：
+- `写作智能体`
+- `AI 写作`
+- `文章改写`
+- `FastAPI`
+- `LangChain`
+- `LangGraph`
+- `RAG`
+- `OpenAI 兼容接口`
+- `React Vite`
+- `公众号封面生成`
+
+建议在 GitHub 仓库设置的 Topics：
+- `ai-writing`
+- `fastapi`
+- `langchain`
+- `langgraph`
+- `rag`
+- `openai`
+- `react`
+- `vite`
+- `python`
 
 ## 环境要求
 

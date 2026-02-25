@@ -1,13 +1,15 @@
 # Write Agent
 
-AI writing assistant with style extraction, RAG-enhanced rewriting, review workflow, and AI cover generation.
+AI writing assistant built with FastAPI, LangChain, LangGraph, RAG, and OpenAI-compatible APIs for style extraction, rewriting, review, and cover generation.
 
 [中文文档](./README.zh-CN.md)
 
 ## Table of Contents
 
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Tech Stack and Architecture](#tech-stack-and-architecture)
+- [Keywords and Discoverability](#keywords-and-discoverability)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Environment Variables](#environment-variables)
@@ -38,6 +40,28 @@ AI writing assistant with style extraction, RAG-enhanced rewriting, review workf
 - Cover style management (create/list/delete).
 - Rewrite/review/cover history for traceability.
 
+## Screenshots
+
+### 1) Style Extraction
+
+![Style Extraction Page](docs/screenshots/styles-page.png)
+
+### 2) Materials Library
+
+![Materials Library Page](docs/screenshots/materials-page.png)
+
+### 3) Rewrite Workflow
+
+![Rewrite Page](docs/screenshots/rewrite-page.png)
+
+### 4) Review Workflow
+
+![Review Page](docs/screenshots/reviews-page.png)
+
+### 5) Cover Generation
+
+![Cover Generation Page](docs/screenshots/covers-page.png)
+
 ## Tech Stack and Architecture
 
 - Backend: FastAPI + SQLModel + SQLite
@@ -52,6 +76,30 @@ High-level flow:
 ```text
 Style Extraction -> Materials (RAG) -> Rewrite (SSE) -> Review (SSE) -> Cover (SSE)
 ```
+
+## Keywords and Discoverability
+
+Keywords:
+- `ai writing assistant`
+- `writing agent`
+- `fastapi`
+- `langchain`
+- `langgraph`
+- `rag`
+- `openai compatible api`
+- `react vite`
+- `wechat cover generation`
+
+Suggested GitHub repository topics:
+- `ai-writing`
+- `fastapi`
+- `langchain`
+- `langgraph`
+- `rag`
+- `openai`
+- `react`
+- `vite`
+- `python`
 
 ## Prerequisites
 
