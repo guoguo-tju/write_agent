@@ -9,7 +9,6 @@
 - [功能特性](#功能特性)
 - [界面截图](#界面截图)
 - [技术栈与架构](#技术栈与架构)
-- [搜索关键词与可发现性](#搜索关键词与可发现性)
 - [环境要求](#环境要求)
 - [快速开始](#快速开始)
 - [环境变量](#环境变量)
@@ -77,31 +76,6 @@
 风格提取 -> 素材库（RAG）-> 改写（SSE）-> 审核（SSE）-> 封面（SSE）
 ```
 
-## 搜索关键词与可发现性
-
-推荐关键词：
-- `写作智能体`
-- `AI 写作`
-- `文章改写`
-- `FastAPI`
-- `LangChain`
-- `LangGraph`
-- `RAG`
-- `OpenAI 兼容接口`
-- `React Vite`
-- `公众号封面生成`
-
-建议在 GitHub 仓库设置的 Topics：
-- `ai-writing`
-- `fastapi`
-- `langchain`
-- `langgraph`
-- `rag`
-- `openai`
-- `react`
-- `vite`
-- `python`
-
 ## 环境要求
 
 - Python `3.10+`（当前项目使用 `3.10`）
@@ -134,10 +108,12 @@ uv sync
 cp .env.example .env
 ```
 
-然后编辑 `.env`，填入你自己的 API Key（至少需要）：
+然后编辑 `.env`，填入你自己的 API Key（必填）：
 - `OPENAI_API_KEY`
-- `SILICONFLOW_API_KEY`
 - `VOLCENGINE_API_KEY`
+
+可选（仅在使用 RAG 素材检索时需要）：
+- `SILICONFLOW_API_KEY`
 
 创建数据库表：
 
@@ -177,12 +153,12 @@ npm run dev
 
 ## 环境变量
 
-### 全功能必填
+### 核心功能必填
 
 - 建议先复制 `.env.example` 为 `.env`，再填写密钥。
 - `OPENAI_API_KEY`：风格提取、改写、审核依赖。
 - `VOLCENGINE_API_KEY`：封面生图依赖。
-- `SILICONFLOW_API_KEY`：素材向量化与检索依赖。
+- `SILICONFLOW_API_KEY`（可选）：仅素材向量化与 RAG 检索依赖。
 
 ### 常用可选覆盖项
 

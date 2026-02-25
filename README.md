@@ -9,7 +9,6 @@ AI writing assistant built with FastAPI, LangChain, LangGraph, RAG, and OpenAI-c
 - [Features](#features)
 - [Screenshots](#screenshots)
 - [Tech Stack and Architecture](#tech-stack-and-architecture)
-- [Keywords and Discoverability](#keywords-and-discoverability)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Environment Variables](#environment-variables)
@@ -77,30 +76,6 @@ High-level flow:
 Style Extraction -> Materials (RAG) -> Rewrite (SSE) -> Review (SSE) -> Cover (SSE)
 ```
 
-## Keywords and Discoverability
-
-Keywords:
-- `ai writing assistant`
-- `writing agent`
-- `fastapi`
-- `langchain`
-- `langgraph`
-- `rag`
-- `openai compatible api`
-- `react vite`
-- `wechat cover generation`
-
-Suggested GitHub repository topics:
-- `ai-writing`
-- `fastapi`
-- `langchain`
-- `langgraph`
-- `rag`
-- `openai`
-- `react`
-- `vite`
-- `python`
-
 ## Prerequisites
 
 - Python `3.10+` (project currently uses `3.10`)
@@ -133,10 +108,12 @@ Create `.env` from template:
 cp .env.example .env
 ```
 
-Then edit `.env` and fill your own API keys (at minimum):
+Then edit `.env` and fill your own API keys (required):
 - `OPENAI_API_KEY`
-- `SILICONFLOW_API_KEY`
 - `VOLCENGINE_API_KEY`
+
+Optional (only if you use RAG materials retrieval):
+- `SILICONFLOW_API_KEY`
 
 Create database tables:
 
@@ -176,12 +153,12 @@ Open:
 
 ## Environment Variables
 
-### Required for full features
+### Required for core features
 
 - Start from `.env.example`, then copy to `.env` and fill your keys.
 - `OPENAI_API_KEY`: rewrite/review/style extraction.
 - `VOLCENGINE_API_KEY`: cover image generation.
-- `SILICONFLOW_API_KEY`: material embedding and vector retrieval.
+- `SILICONFLOW_API_KEY` (optional): material embedding and vector retrieval for RAG.
 
 ### Common optional overrides
 
