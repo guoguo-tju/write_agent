@@ -20,12 +20,21 @@ class LLMService:
 
     def __init__(self):
         """初始化 LLM 客户端"""
+        base_url = settings.openai_base_url.rstrip("/")
+        # 兼容仅提供网关根路径（如 http://localhost:8317）的场景
+        if not base_url.endswith("/v1"):
+            base_url = f"{base_url}/v1"
+
         self.llm = ChatOpenAI(
             model=settings.openai_model,
             openai_api_key=settings.openai_api_key,
-            base_url=settings.openai_base_url
+            base_url=base_url,
         )
-        logger.info(f"LLM 服务初始化完成，使用模型: {settings.openai_model}")
+        logger.info(
+            "LLM 服务初始化完成，使用模型: %s, base_url: %s",
+            settings.openai_model,
+            base_url,
+        )
 
     def chat(
         self,

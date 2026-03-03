@@ -1,220 +1,213 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  CheckCircle,
+  CheckCircle2,
+  Clipboard,
+  Clock3,
+  Loader2,
+  RefreshCw,
   XCircle,
-  Clock,
-  Eye,
-  FileText,
-  Sparkles,
-  Calendar,
 } from "lucide-react";
-import { Button, Card } from "../components";
+import { AppTopNav } from "../components";
 import { getRewrites, type RewriteRecord } from "../services/api";
 import "./ReviewsPage.css";
 
+type RewriteStatus = "completed" | "failed" | "running" | "pending";
+
+const formatTime = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const summarize = (value: string, maxLength = 72) => {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= maxLength) {
+    return compact;
+  }
+  return `${compact.slice(0, maxLength)}...`;
+};
+
+const statusLabel: Record<RewriteStatus, string> = {
+  completed: "已完成",
+  failed: "失败",
+  running: "处理中",
+  pending: "待处理",
+};
+
+const statusClassName = (status: string) => {
+  if (status === "completed" || status === "failed" || status === "running" || status === "pending") {
+    return status;
+  }
+  return "pending";
+};
+
+const getStatusIcon = (status: string) => {
+  switch (status) {
+    case "completed":
+      return <CheckCircle2 size={14} />;
+    case "failed":
+      return <XCircle size={14} />;
+    default:
+      return <Clock3 size={14} />;
+  }
+};
+
 export const ReviewsPage: React.FC = () => {
   const [rewrites, setRewrites] = useState<RewriteRecord[]>([]);
+  const [selectedRewriteId, setSelectedRewriteId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedRewrite, setSelectedRewrite] = useState<RewriteRecord | null>(
-    null,
-  );
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, []);
+
+  const selectedRewrite = useMemo(
+    () => rewrites.find((item) => item.id === selectedRewriteId) || null,
+    [rewrites, selectedRewriteId],
+  );
 
   const loadData = async () => {
     setIsLoading(true);
     try {
       const data = await getRewrites();
-      setRewrites(data);
+      const sorted = [...data].sort((left, right) => {
+        const leftTime = Date.parse(left.updated_at || left.created_at);
+        const rightTime = Date.parse(right.updated_at || right.created_at);
+        return rightTime - leftTime;
+      });
+      setRewrites(sorted);
+      setSelectedRewriteId((prev) => {
+        if (prev && sorted.some((item) => item.id === prev)) {
+          return prev;
+        }
+        return sorted[0]?.id ?? null;
+      });
     } catch (error) {
-      console.error("加载数据失败:", error);
+      console.error("加载审核记录失败:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "completed":
-        return <CheckCircle size={16} className="status-icon success" />;
-      case "failed":
-        return <XCircle size={16} className="status-icon error" />;
-      default:
-        return <Clock size={16} className="status-icon pending" />;
+  const copyResult = async () => {
+    if (!selectedRewrite?.final_content) {
+      return;
     }
-  };
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleString("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  // 截断文本显示
-  const truncateText = (text: string, maxLength: number = 100) => {
-    if (!text) return "";
-    return text.length > maxLength ? text.slice(0, maxLength) + "..." : text;
+    await navigator.clipboard.writeText(selectedRewrite.final_content);
   };
 
   return (
-    <div className="reviews-page">
-      <div className="page-header">
-        <h1 className="page-title">审核记录</h1>
-        <p className="page-description">查看所有改写审核状态</p>
-      </div>
+    <div className="reviews-v2-page">
+      <AppTopNav />
 
-      <div className="reviews-list">
-        {isLoading ? (
-          <div className="loading">加载中...</div>
-        ) : rewrites.length === 0 ? (
-          <div className="empty-state">
-            <p>暂无审核记录</p>
-          </div>
-        ) : (
-          rewrites.map((rewrite) => (
-            <Card key={rewrite.id} className="review-card">
-              {/* 头部：ID、风格、状态、时间 */}
-              <div className="review-header">
-                <div className="review-info">
-                  <span className="review-id">#{rewrite.id}</span>
-                  <span className="review-style-badge">
-                    <Sparkles size={12} />
-                    {rewrite.style_name || "未知风格"}
-                  </span>
-                  {getStatusIcon(rewrite.status)}
-                  <span className={`review-status status-${rewrite.status}`}>
-                    {rewrite.status === "completed"
-                      ? "已完成"
-                      : rewrite.status === "failed"
-                        ? "失败"
-                        : "处理中"}
-                  </span>
-                </div>
-                <div className="review-time">
-                  <Calendar size={12} />
-                  {formatDate(rewrite.created_at)}
-                </div>
-              </div>
-
-              {/* 内容区域：原文和改写结果 */}
-              <div className="review-content-grid">
-                <div className="review-content-box source">
-                  <div className="review-content-box-header">
-                    <FileText size={14} />
-                    <span>原文</span>
-                  </div>
-                  <div className="review-content-box-text">
-                    {truncateText(rewrite.source_article, 200)}
-                  </div>
-                </div>
-                <div className="review-content-box result">
-                  <div className="review-content-box-header">
-                    <Sparkles size={14} />
-                    <span>改写结果</span>
-                  </div>
-                  <div className="review-content-box-text">
-                    {rewrite.final_content
-                      ? truncateText(rewrite.final_content, 200)
-                      : "暂无改写结果"}
-                  </div>
-                </div>
-              </div>
-
-              {/* 底部操作 */}
-              <div className="review-footer">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon={<Eye size={14} />}
-                  onClick={() => setSelectedRewrite(rewrite)}
-                >
-                  查看详情
-                </Button>
-              </div>
-            </Card>
-          ))
-        )}
-      </div>
-
-      {/* 详情弹窗 */}
-      {selectedRewrite && (
-        <div className="modal-overlay" onClick={() => setSelectedRewrite(null)}>
-          <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="detail-header">
-              <h3>改写详情 #{selectedRewrite.id}</h3>
-              <div className="detail-meta">
-                <span className="detail-meta-item">
-                  <Sparkles size={14} />
-                  {selectedRewrite.style_name || "未知风格"}
-                </span>
-                <span className="detail-meta-item">
-                  <Calendar size={14} />
-                  {formatDate(selectedRewrite.created_at)}
-                </span>
-                <span
-                  className={`detail-status status-${selectedRewrite.status}`}
-                >
-                  {getStatusIcon(selectedRewrite.status)}
-                  {selectedRewrite.status === "completed"
-                    ? "已完成"
-                    : selectedRewrite.status === "failed"
-                      ? "失败"
-                      : "处理中"}
-                </span>
-              </div>
+      <main className="reviews-v2-main">
+        <aside className="reviews-v2-queue">
+          <div className="reviews-v2-panel-head">
+            <div>
+              <h1>审核队列</h1>
+              <p>{rewrites.length} 条改写记录</p>
             </div>
+            <button type="button" onClick={() => void loadData()} disabled={isLoading}>
+              {isLoading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+              刷新
+            </button>
+          </div>
 
-            <div className="detail-body">
-              <div className="detail-section">
-                <label>
-                  <FileText size={14} />
-                  原文
-                </label>
-                <div className="detail-content">
-                  {selectedRewrite.source_article}
-                </div>
+          <div className="reviews-v2-queue-list">
+            {isLoading ? (
+              <div className="reviews-v2-empty">加载中...</div>
+            ) : rewrites.length === 0 ? (
+              <div className="reviews-v2-empty">暂无改写记录</div>
+            ) : (
+              rewrites.map((rewrite) => {
+                const normalizedStatus = statusClassName(rewrite.status) as RewriteStatus;
+
+                return (
+                  <button
+                    key={rewrite.id}
+                    type="button"
+                    className={`reviews-v2-queue-item ${selectedRewriteId === rewrite.id ? "active" : ""}`}
+                    onClick={() => setSelectedRewriteId(rewrite.id)}
+                  >
+                    <div className="reviews-v2-queue-item-head">
+                      <span>#{rewrite.id}</span>
+                      <strong className={`status-${normalizedStatus}`}>
+                        {getStatusIcon(normalizedStatus)}
+                        {statusLabel[normalizedStatus]}
+                      </strong>
+                    </div>
+                    <p>{summarize(rewrite.source_article)}</p>
+                    <div className="reviews-v2-queue-item-meta">
+                      <span>{formatTime(rewrite.created_at)}</span>
+                      <span>{rewrite.style_name || "未知风格"}</span>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </aside>
+
+        <section className="reviews-v2-source">
+          <div className="reviews-v2-panel-head">
+            <div>
+              <h2>原文</h2>
+              <p>{selectedRewrite ? `#${selectedRewrite.id}` : "请选择记录"}</p>
+            </div>
+          </div>
+
+          {selectedRewrite ? (
+            <>
+              <div className="reviews-v2-meta-row">
+                <span>
+                  状态：
+                  <strong className={`status-${statusClassName(selectedRewrite.status)}`}>
+                    {statusLabel[statusClassName(selectedRewrite.status) as RewriteStatus]}
+                  </strong>
+                </span>
+                <span>目标字数：{selectedRewrite.target_words || 0}</span>
+                <span>风格：{selectedRewrite.style_name || "未知"}</span>
               </div>
+              <article className="reviews-v2-paper">{selectedRewrite.source_article}</article>
+            </>
+          ) : (
+            <div className="reviews-v2-empty reviews-v2-paper-empty">请选择左侧记录查看原文</div>
+          )}
+        </section>
 
-              {selectedRewrite.final_content && (
-                <div className="detail-section">
-                  <label>
-                    <Sparkles size={14} />
-                    改写结果
-                  </label>
-                  <div className="detail-content rewrite-result">
-                    {selectedRewrite.final_content}
-                  </div>
-                </div>
-              )}
+        <section className="reviews-v2-result">
+          <div className="reviews-v2-panel-head">
+            <div>
+              <h2>改写结果</h2>
+              <p>{selectedRewrite ? `更新时间 ${formatTime(selectedRewrite.updated_at)}` : ""}</p>
+            </div>
+            <button type="button" onClick={copyResult} disabled={!selectedRewrite?.final_content}>
+              <Clipboard size={14} />
+              复制
+            </button>
+          </div>
 
+          {selectedRewrite ? (
+            <>
               {selectedRewrite.error_message && (
-                <div className="detail-section">
-                  <label>错误信息</label>
-                  <div className="detail-content error">
-                    {selectedRewrite.error_message}
-                  </div>
-                </div>
+                <div className="reviews-v2-error">错误信息：{selectedRewrite.error_message}</div>
               )}
-            </div>
-
-            <div className="modal-actions">
-              <Button
-                variant="secondary"
-                onClick={() => setSelectedRewrite(null)}
-              >
-                关闭
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+              <article className="reviews-v2-paper">
+                {selectedRewrite.final_content || "暂无改写结果"}
+              </article>
+            </>
+          ) : (
+            <div className="reviews-v2-empty reviews-v2-paper-empty">请选择左侧记录查看结果</div>
+          )}
+        </section>
+      </main>
     </div>
   );
 };

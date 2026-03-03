@@ -2,8 +2,8 @@
 封面生成服务
 """
 import asyncio
-import json
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 from sqlmodel import Session, create_engine, select
@@ -29,6 +29,37 @@ class CoverService:
         self.base_url = settings.volcengine_base_url
         self.model = settings.volcengine_model
         self.api_key = settings.volcengine_api_key
+
+    @staticmethod
+    def _extract_keywords_fallback(content: str) -> str:
+        """当LLM不可用时，使用文本片段生成关键词。"""
+        compact = re.sub(r"\s+", " ", content).strip()
+        segments = re.split(r"[。！？!?,，；;\n]+", compact)
+        selected = []
+        for segment in segments:
+            cleaned = segment.strip()
+            if 2 <= len(cleaned) <= 20:
+                selected.append(cleaned)
+            if len(selected) >= 5:
+                break
+        if not selected:
+            selected = [compact[:16]]
+        return ", ".join(selected)
+
+    @staticmethod
+    def _build_prompt_fallback(keywords: str, style_description: str) -> str:
+        """当LLM不可用时，构造可直接用于生图的英文Prompt。"""
+        style_hint = (
+            f"style hints: {style_description}; " if style_description else ""
+        )
+        return (
+            "A clean editorial cover illustration, "
+            f"topic keywords: {keywords}; "
+            f"{style_hint}"
+            "cinematic composition, strong focal subject, "
+            "balanced negative space, soft dramatic lighting, "
+            "ultra detailed, no watermark, no text overlay."
+        )
 
     async def generate_prompt(
         self,
@@ -75,11 +106,15 @@ class CoverService:
 """
 
         # 先提取关键词（使用 to_thread 调用同步方法）
-        keywords_response: str = await asyncio.to_thread(
-            llm.chat,
-            messages=[{"role": "user", "content": extract_prompt}]
-        )
-        keywords = keywords_response.strip()
+        try:
+            keywords_response: str = await asyncio.to_thread(
+                llm.chat,
+                messages=[{"role": "user", "content": extract_prompt}]
+            )
+            keywords = keywords_response.strip()
+        except Exception as exc:
+            logger.warning("关键词提取失败，使用本地兜底策略: %s", exc)
+            keywords = self._extract_keywords_fallback(content)
 
         # 生成封面Prompt
         cover_prompt = f"""请为文章生成一个适合的封面图片描述词（英文）。
@@ -99,12 +134,18 @@ class CoverService:
 """
 
         # 生成封面Prompt（使用 to_thread 调用同步方法）
-        prompt_response: str = await asyncio.to_thread(
-            llm.chat,
-            messages=[{"role": "user", "content": cover_prompt}]
-        )
-
-        generated_prompt = prompt_response.strip()
+        try:
+            prompt_response: str = await asyncio.to_thread(
+                llm.chat,
+                messages=[{"role": "user", "content": cover_prompt}]
+            )
+            generated_prompt = prompt_response.strip()
+        except Exception as exc:
+            logger.warning("封面Prompt生成失败，使用本地兜底策略: %s", exc)
+            generated_prompt = self._build_prompt_fallback(
+                keywords=keywords,
+                style_description=style_description,
+            )
         logger.debug(f"封面Prompt已生成，长度: {len(generated_prompt)} 字符")
 
         return generated_prompt
