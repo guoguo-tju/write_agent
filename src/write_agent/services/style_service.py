@@ -292,6 +292,31 @@ class StyleExtractionService:
         with Session(engine) as session:
             return session.get(WritingStyle, style_id)
 
+    def update_style(
+        self,
+        style_id: int,
+        name: str,
+        style_description: str,
+        tags: Optional[str] = None,
+        example_text: Optional[str] = None,
+    ) -> Optional[WritingStyle]:
+        """更新写作风格。"""
+        with Session(engine) as session:
+            style = session.get(WritingStyle, style_id)
+            if not style:
+                return None
+
+            style.name = name
+            style.style_description = style_description
+            style.tags = tags
+            style.example_text = example_text
+            style.updated_at = datetime.now()
+
+            session.add(style)
+            session.commit()
+            session.refresh(style)
+            return style
+
     def delete_style(self, style_id: int) -> bool:
         """删除写作风格"""
         with Session(engine) as session:

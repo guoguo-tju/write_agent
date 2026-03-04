@@ -1,12 +1,15 @@
-.app-top-nav {
+.app-top-shell {
   position: sticky;
   top: 0;
   z-index: 40;
+}
+
+.app-top-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 24px;
-  border-bottom: 1px solid #203129;
+  border-bottom: 1px solid #1e3028;
   background: rgba(10, 16, 14, 0.92);
   backdrop-filter: blur(8px);
 }

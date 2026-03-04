@@ -31,8 +31,18 @@ class StyleResponse(BaseModel):
     id: int
     name: str
     style_description: str
+    example_text: Optional[str] = None
     tags: Optional[str]
     created_at: str
+    updated_at: Optional[str] = None
+
+
+class UpdateStyleRequest(BaseModel):
+    """更新风格请求"""
+    name: str
+    style_description: str
+    tags: Optional[str] = None
+    example_text: Optional[str] = None
 
 
 # ============ API 接口 ============
@@ -40,6 +50,19 @@ class StyleResponse(BaseModel):
 def _normalize_articles(articles: list[str]) -> list[str]:
     """过滤空文章并去除前后空白。"""
     return [article.strip() for article in articles if article and article.strip()]
+
+
+def _to_style_response(style) -> StyleResponse:
+    """统一风格响应结构。"""
+    return StyleResponse(
+        id=style.id,
+        name=style.name,
+        style_description=style.style_description,
+        example_text=style.example_text,
+        tags=style.tags,
+        created_at=style.created_at.isoformat(),
+        updated_at=style.updated_at.isoformat() if style.updated_at else None,
+    )
 
 
 @router.post("/extract", response_model=StyleResponse)
@@ -69,13 +92,7 @@ async def extract_style(request: ExtractStyleRequest):
             tags=request.tags,
         )
 
-        return StyleResponse(
-            id=style.id,
-            name=style.name,
-            style_description=style.style_description,
-            tags=style.tags,
-            created_at=style.created_at.isoformat(),
-        )
+        return _to_style_response(style)
 
     except HTTPException:
         raise
@@ -123,13 +140,7 @@ async def get_all_styles():
     try:
         styles = style_service.get_all_styles()
         return [
-            StyleResponse(
-                id=s.id,
-                name=s.name,
-                style_description=s.style_description,
-                tags=s.tags,
-                created_at=s.created_at.isoformat(),
-            )
+            _to_style_response(s)
             for s in styles
         ]
     except Exception as e:
@@ -144,13 +155,40 @@ async def get_style(style_id: int):
     if not style:
         raise HTTPException(status_code=404, detail="风格不存在")
 
-    return StyleResponse(
-        id=style.id,
-        name=style.name,
-        style_description=style.style_description,
-        tags=style.tags,
-        created_at=style.created_at.isoformat(),
+    return _to_style_response(style)
+
+
+@router.patch("/{style_id}", response_model=StyleResponse)
+async def update_style(style_id: int, request: UpdateStyleRequest):
+    """更新写作风格。"""
+    name = request.name.strip()
+    style_description = request.style_description.strip()
+
+    if not name:
+        raise HTTPException(status_code=400, detail="风格名称不能为空")
+    if not style_description:
+        raise HTTPException(status_code=400, detail="风格描述不能为空")
+
+    try:
+        json.loads(style_description)
+    except Exception:
+        raise HTTPException(status_code=400, detail="风格描述必须是有效 JSON")
+
+    style = style_service.update_style(
+        style_id=style_id,
+        name=name,
+        style_description=style_description,
+        tags=request.tags.strip() if isinstance(request.tags, str) else request.tags,
+        example_text=(
+            request.example_text.strip()
+            if isinstance(request.example_text, str)
+            else request.example_text
+        ),
     )
+    if not style:
+        raise HTTPException(status_code=404, detail="风格不存在")
+
+    return _to_style_response(style)
 
 
 @router.delete("/{style_id}")

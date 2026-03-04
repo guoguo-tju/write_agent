@@ -4,9 +4,12 @@ import type {
   Material,
   RewriteRecord,
   ReviewRecord,
+  ManualEditRecord,
   CoverRecord,
   CoverStyle,
   SSEMessage,
+  WorkflowSnapshot,
+  WorkflowStepStatus,
 } from "../types";
 
 // Re-export types
@@ -15,9 +18,12 @@ export type {
   Material,
   RewriteRecord,
   ReviewRecord,
+  ManualEditRecord,
   CoverRecord,
   CoverStyle,
   SSEMessage,
+  WorkflowSnapshot,
+  WorkflowStepStatus,
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -162,6 +168,21 @@ export const getStyles = async (): Promise<WritingStyle[]> => {
 
 export const getStyle = async (id: number): Promise<WritingStyle> => {
   const response = await api.get<WritingStyle>(`/api/styles/${id}`);
+  return response.data;
+};
+
+export interface UpdateStyleRequest {
+  name: string;
+  tags?: string;
+  example_text?: string;
+  style_description: string;
+}
+
+export const updateStyle = async (
+  id: number,
+  data: UpdateStyleRequest,
+): Promise<WritingStyle> => {
+  const response = await api.patch<WritingStyle>(`/api/styles/${id}`, data);
   return response.data;
 };
 
@@ -440,12 +461,21 @@ export const manualEdit = async (
   reviewId: number,
   editedContent: string,
   editNote?: string,
-): Promise<ReviewRecord> => {
-  const response = await api.post<ReviewRecord>("/api/reviews/manual-edit", {
+): Promise<ManualEditRecord> => {
+  const response = await api.post<ManualEditRecord>("/api/reviews/manual-edit", {
     review_id: reviewId,
     edited_content: editedContent,
     edit_note: editNote,
   });
+  return response.data;
+};
+
+export const getManualEdit = async (
+  reviewId: number,
+): Promise<ManualEditRecord> => {
+  const response = await api.get<ManualEditRecord>(
+    `/api/reviews/manual-edit/${reviewId}`,
+  );
   return response.data;
 };
 

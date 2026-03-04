@@ -3,15 +3,37 @@ import {
   CheckCircle2,
   Clipboard,
   Clock3,
+  Edit3,
   Loader2,
   RefreshCw,
-  XCircle,
+  Save,
+  X,
+  XCircle
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { AppTopNav } from "../components";
-import { getRewrites, type RewriteRecord } from "../services/api";
+import {
+  getRewrites,
+  getReviewsByRewrite,
+  manualEdit,
+  startReview,
+  type ReviewRecord,
+  type RewriteRecord,
+} from "../services/api";
 import "./ReviewsPage.css";
 
 type RewriteStatus = "completed" | "failed" | "running" | "pending";
+
+const parseRewriteId = (value: string | null): number | null => {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+};
 
 const formatTime = (value: string) => {
   const date = new Date(value);
@@ -42,7 +64,12 @@ const statusLabel: Record<RewriteStatus, string> = {
 };
 
 const statusClassName = (status: string) => {
-  if (status === "completed" || status === "failed" || status === "running" || status === "pending") {
+  if (
+    status === "completed" ||
+    status === "failed" ||
+    status === "running" ||
+    status === "pending"
+  ) {
     return status;
   }
   return "pending";
@@ -59,19 +86,64 @@ const getStatusIcon = (status: string) => {
   }
 };
 
+const sortReviews = (items: ReviewRecord[]) =>
+  [...items].sort((left, right) => {
+    const leftTime = Date.parse(left.updated_at || left.created_at || "");
+    const rightTime = Date.parse(right.updated_at || right.created_at || "");
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+      return rightTime - leftTime;
+    }
+    return right.id - left.id;
+  });
+
 export const ReviewsPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rewriteIdFromQuery = parseRewriteId(searchParams.get("rewrite_id"));
+
   const [rewrites, setRewrites] = useState<RewriteRecord[]>([]);
-  const [selectedRewriteId, setSelectedRewriteId] = useState<number | null>(null);
+  const [selectedRewriteId, setSelectedRewriteId] = useState<number | null>(
+    rewriteIdFromQuery,
+  );
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    void loadData();
-  }, []);
+  const [latestReview, setLatestReview] = useState<ReviewRecord | null>(null);
+  const [isReviewLoading, setIsReviewLoading] = useState(false);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState("");
+  const [editNote, setEditNote] = useState("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isRunningReview, setIsRunningReview] = useState(false);
+  const [editMessage, setEditMessage] = useState("");
 
   const selectedRewrite = useMemo(
     () => rewrites.find((item) => item.id === selectedRewriteId) || null,
     [rewrites, selectedRewriteId],
   );
+
+  const syncRewriteQuery = (rewriteId: number | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (rewriteId) {
+      next.set("rewrite_id", String(rewriteId));
+    } else {
+      next.delete("rewrite_id");
+    }
+    setSearchParams(next, { replace: true });
+  };
+
+  const loadLatestReview = async (rewriteId: number) => {
+    setIsReviewLoading(true);
+    try {
+      const result = await getReviewsByRewrite(rewriteId);
+      const latest = sortReviews(result.items)[0] || null;
+      setLatestReview(latest);
+    } catch (error) {
+      console.error("加载审核详情失败:", error);
+      setLatestReview(null);
+    } finally {
+      setIsReviewLoading(false);
+    }
+  };
 
   const loadData = async () => {
     setIsLoading(true);
@@ -83,12 +155,14 @@ export const ReviewsPage: React.FC = () => {
         return rightTime - leftTime;
       });
       setRewrites(sorted);
-      setSelectedRewriteId((prev) => {
-        if (prev && sorted.some((item) => item.id === prev)) {
-          return prev;
-        }
-        return sorted[0]?.id ?? null;
-      });
+
+      const preferredId =
+        rewriteIdFromQuery && sorted.some((item) => item.id === rewriteIdFromQuery)
+          ? rewriteIdFromQuery
+          : sorted[0]?.id ?? null;
+
+      setSelectedRewriteId(preferredId);
+      syncRewriteQuery(preferredId);
     } catch (error) {
       console.error("加载审核记录失败:", error);
     } finally {
@@ -96,11 +170,131 @@ export const ReviewsPage: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    void loadData();
+  }, []);
+
+  useEffect(() => {
+    if (
+      rewriteIdFromQuery &&
+      rewriteIdFromQuery !== selectedRewriteId &&
+      rewrites.some((item) => item.id === rewriteIdFromQuery)
+    ) {
+      setSelectedRewriteId(rewriteIdFromQuery);
+    }
+  }, [rewriteIdFromQuery, rewrites, selectedRewriteId]);
+
+  useEffect(() => {
+    if (!selectedRewriteId) {
+      setLatestReview(null);
+      return;
+    }
+    void loadLatestReview(selectedRewriteId);
+  }, [selectedRewriteId]);
+
+  useEffect(() => {
+    if (!selectedRewrite) {
+      setIsEditing(false);
+      setEditedContent("");
+      setEditNote("");
+      setEditMessage("");
+      return;
+    }
+
+    setIsEditing(false);
+    setEditedContent(selectedRewrite.final_content || "");
+    setEditNote("");
+    setEditMessage("");
+  }, [selectedRewrite?.id]);
+
   const copyResult = async () => {
     if (!selectedRewrite?.final_content) {
       return;
     }
     await navigator.clipboard.writeText(selectedRewrite.final_content);
+  };
+
+  const handleStartEdit = async () => {
+    if (!selectedRewrite?.id) {
+      return;
+    }
+    if (!latestReview) {
+      await handleRunReviewThenEdit();
+      return;
+    }
+    setEditedContent(selectedRewrite.final_content || "");
+    setIsEditing(true);
+    setEditMessage("");
+  };
+
+  const handleCancelEdit = () => {
+    if (!selectedRewrite) {
+      return;
+    }
+    setIsEditing(false);
+    setEditedContent(selectedRewrite.final_content || "");
+    setEditNote("");
+    setEditMessage("");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedRewrite?.id || !latestReview) {
+      return;
+    }
+
+    const content = editedContent.trim();
+    if (!content) {
+      setEditMessage("编辑内容不能为空。");
+      return;
+    }
+
+    setIsSavingEdit(true);
+    setEditMessage("");
+    try {
+      await manualEdit(
+        latestReview.id,
+        content,
+        editNote.trim() || undefined,
+      );
+      setIsEditing(false);
+      setEditNote("");
+      setEditMessage("人工编辑已保存并生效。");
+      await loadData();
+      if (selectedRewriteId) {
+        await loadLatestReview(selectedRewriteId);
+      }
+    } catch (error) {
+      console.error("保存人工编辑失败:", error);
+      setEditMessage(error instanceof Error ? error.message : "保存失败，请重试。");
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleRunReviewThenEdit = async () => {
+    if (!selectedRewrite?.id) {
+      return;
+    }
+
+    setIsRunningReview(true);
+    setEditMessage("");
+    try {
+      const review = await startReview({ rewrite_id: selectedRewrite.id });
+      setLatestReview(review);
+      setIsEditing(true);
+      setEditedContent(selectedRewrite.final_content || "");
+      setEditMessage("审核已完成，已进入人工编辑模式。");
+    } catch (error) {
+      console.error("执行审核失败:", error);
+      setEditMessage(error instanceof Error ? error.message : "执行审核失败，请稍后重试。");
+    } finally {
+      setIsRunningReview(false);
+    }
+  };
+
+  const handleSelectRewrite = (rewriteId: number) => {
+    setSelectedRewriteId(rewriteId);
+    syncRewriteQuery(rewriteId);
   };
 
   return (
@@ -134,7 +328,7 @@ export const ReviewsPage: React.FC = () => {
                     key={rewrite.id}
                     type="button"
                     className={`reviews-v2-queue-item ${selectedRewriteId === rewrite.id ? "active" : ""}`}
-                    onClick={() => setSelectedRewriteId(rewrite.id)}
+                    onClick={() => handleSelectRewrite(rewrite.id)}
                   >
                     <div className="reviews-v2-queue-item-head">
                       <span>#{rewrite.id}</span>
@@ -188,10 +382,29 @@ export const ReviewsPage: React.FC = () => {
               <h2>改写结果</h2>
               <p>{selectedRewrite ? `更新时间 ${formatTime(selectedRewrite.updated_at)}` : ""}</p>
             </div>
-            <button type="button" onClick={copyResult} disabled={!selectedRewrite?.final_content}>
-              <Clipboard size={14} />
-              复制
-            </button>
+            <div className="reviews-v2-result-actions">
+              <button type="button" onClick={copyResult} disabled={!selectedRewrite?.final_content || isEditing}>
+                <Clipboard size={14} />
+                复制
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleStartEdit()}
+                disabled={!selectedRewrite?.id || isEditing || isSavingEdit || isRunningReview || isReviewLoading}
+              >
+                {isRunningReview || isReviewLoading ? (
+                  <>
+                    <Loader2 size={14} className="spin" />
+                    准备中...
+                  </>
+                ) : (
+                  <>
+                    <Edit3 size={14} />
+                    人工编辑
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           {selectedRewrite ? (
@@ -199,9 +412,75 @@ export const ReviewsPage: React.FC = () => {
               {selectedRewrite.error_message && (
                 <div className="reviews-v2-error">错误信息：{selectedRewrite.error_message}</div>
               )}
-              <article className="reviews-v2-paper">
-                {selectedRewrite.final_content || "暂无改写结果"}
-              </article>
+              {isEditing ? (
+                <div className="reviews-v2-inline-edit">
+                  <label>
+                    编辑内容
+                    <textarea
+                      value={editedContent}
+                      onChange={(event) => setEditedContent(event.target.value)}
+                      placeholder="请输入人工优化后的正文内容"
+                    />
+                  </label>
+                  <label>
+                    编辑备注（可选）
+                    <input
+                      value={editNote}
+                      onChange={(event) => setEditNote(event.target.value)}
+                      placeholder="例如：精简开头、调整段落顺序"
+                    />
+                  </label>
+                  <div className="reviews-v2-manual-actions">
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={handleCancelEdit}
+                      disabled={isSavingEdit}
+                    >
+                      <X size={14} />
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={handleSaveEdit}
+                      disabled={isSavingEdit || !editedContent.trim()}
+                    >
+                      {isSavingEdit ? (
+                        <>
+                          <Loader2 size={14} className="spin" />
+                          保存中...
+                        </>
+                      ) : (
+                        <>
+                          <Save size={14} />
+                          保存并生效
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <article className="reviews-v2-paper">
+                  {selectedRewrite.final_content || "暂无改写结果"}
+                </article>
+              )}
+
+              {!latestReview && !isEditing && (
+                <div className="reviews-v2-manual-empty">
+                  当前记录暂无审核结果，点击“人工编辑”会先自动执行审核，再进入编辑模式。
+                </div>
+              )}
+
+              {editMessage && <div className="reviews-v2-manual-message">{editMessage}</div>}
+              {latestReview && !isEditing && (
+                <div className="reviews-v2-manual-empty">
+                  已关联审核记录 #{latestReview.id}，可直接在改写结果区域进行人工编辑。
+                </div>
+              )}
+              {!latestReview && isRunningReview && (
+                <div className="reviews-v2-manual-empty">正在执行审核，请稍候...</div>
+              )}
             </>
           ) : (
             <div className="reviews-v2-empty reviews-v2-paper-empty">请选择左侧记录查看结果</div>

@@ -13,27 +13,29 @@ const NAV_ITEMS = [
 
 export const AppTopNav: React.FC = () => {
   return (
-    <header className="app-top-nav">
-      <div className="app-top-nav-brand">
-        <div className="app-top-nav-logo">
-          <PenTool size={16} />
+    <div className="app-top-shell">
+      <header className="app-top-nav">
+        <div className="app-top-nav-brand">
+          <div className="app-top-nav-logo">
+            <PenTool size={16} />
+          </div>
+          <span>砚雀 (YanQue)</span>
         </div>
-        <span>砚雀 (YanQue)</span>
-      </div>
 
-      <nav className="app-top-nav-links">
-        {NAV_ITEMS.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) =>
-              `app-top-nav-item${isActive ? " active" : ""}`
-            }
-          >
-            {item.label}
-          </NavLink>
-        ))}
-      </nav>
-    </header>
+        <nav className="app-top-nav-links">
+          {NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `app-top-nav-item${isActive ? " active" : ""}`
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+      </header>
+    </div>
   );
 };

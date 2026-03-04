@@ -82,6 +82,57 @@ def test_workflow_invalid_style_returns_404() -> None:
     assert resp.json()["detail"] == "风格不存在"
 
 
+def test_styles_patch_update_success() -> None:
+    """PATCH /api/styles/{id} 可成功更新风格。"""
+    client = TestClient(app)
+    style_id = _create_style_for_rewrite_tests()
+    payload = {
+        "name": "更新后的风格",
+        "tags": "更新,测试",
+        "example_text": "示例文本",
+        "style_description": '{"persona":"理性作者","overall_summary":"测试总结"}',
+    }
+
+    resp = client.patch(f"/api/styles/{style_id}", json=payload)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == style_id
+    assert data["name"] == "更新后的风格"
+    assert data["tags"] == "更新,测试"
+    assert data["style_description"] == payload["style_description"]
+    assert data["updated_at"]
+
+
+def test_styles_patch_rejects_invalid_json() -> None:
+    """PATCH /api/styles/{id} 应拦截非法 JSON。"""
+    client = TestClient(app)
+    style_id = _create_style_for_rewrite_tests()
+    payload = {
+        "name": "非法JSON",
+        "style_description": "{bad json}",
+    }
+
+    resp = client.patch(f"/api/styles/{style_id}", json=payload)
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "风格描述必须是有效 JSON"
+
+
+def test_styles_patch_missing_style_returns_404() -> None:
+    """PATCH /api/styles/{id} 对不存在风格返回 404。"""
+    client = TestClient(app)
+    payload = {
+        "name": "不存在风格",
+        "style_description": '{"persona":"x"}',
+    }
+
+    resp = client.patch("/api/styles/999999", json=payload)
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "风格不存在"
+
+
 def test_cover_style_soft_deleted_not_queryable() -> None:
     """软删除封面风格后，详情接口应返回 404。"""
     client = TestClient(app)

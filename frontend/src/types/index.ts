@@ -12,6 +12,7 @@ export interface WritingStyle {
   content_tendencies?: string;
   prohibited_elements?: string;
   sample_content?: string;
+  example_text?: string;
   style_description?: string; // JSON 字符串，包含详细的风格描述
   tags?: string;
   created_at: string;
@@ -62,6 +63,17 @@ export interface ReviewRecord {
   error_message?: string;
   created_at: string;
   updated_at?: string;
+}
+
+// 人工编辑记录
+export interface ManualEditRecord {
+  id: number;
+  review_id: number;
+  rewrite_id: number;
+  original_content: string;
+  edited_content: string;
+  status: string;
+  created_at: string;
 }
 
 // 封面记录
@@ -132,4 +144,23 @@ export interface WorkflowState {
     | "completed"
     | "failed";
   message?: string;
+}
+
+export type WorkflowStepStatus =
+  | "completed"
+  | "current"
+  | "pending"
+  | "failed";
+
+export interface WorkflowSnapshot {
+  rewriteId: number;
+  reviewId?: number;
+  hasManualEdit: boolean;
+  coverId?: number;
+  steps: {
+    rewrite: WorkflowStepStatus;
+    review: WorkflowStepStatus;
+    manual_edit: WorkflowStepStatus;
+    cover: WorkflowStepStatus;
+  };
 }

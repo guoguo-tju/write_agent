@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { AppTopNav } from "../components";
 import {
   coverWithStream,
@@ -55,7 +56,20 @@ const summarize = (value: string, maxLength = 40) => {
   return `${normalized.slice(0, maxLength)}...`;
 };
 
+const parseRewriteId = (value: string | null): number | null => {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+};
+
 export const CoversPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rewriteIdFromQuery = parseRewriteId(searchParams.get("rewrite_id"));
   const [rewrites, setRewrites] = useState<RewriteRecord[]>([]);
   const [covers, setCovers] = useState<Map<number, CoverRecord>>(new Map());
   const [coverStyles, setCoverStyles] = useState<CoverStyle[]>([]);
@@ -98,6 +112,15 @@ export const CoversPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (
+      rewriteIdFromQuery &&
+      rewrites.some((item) => item.id === rewriteIdFromQuery)
+    ) {
+      setSelectedRewriteId(rewriteIdFromQuery);
+    }
+  }, [rewriteIdFromQuery, rewrites]);
+
+  useEffect(() => {
     return () => {
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
@@ -119,11 +142,17 @@ export const CoversPage: React.FC = () => {
       if (stylesData.length > 0 && !selectedStyleId) {
         setSelectedStyleId(stylesData[0].id);
       }
-      if (
-        completedRewrites.length > 0 &&
-        !completedRewrites.some((item) => item.id === selectedRewriteId)
-      ) {
-        setSelectedRewriteId(completedRewrites[0].id);
+      if (completedRewrites.length > 0) {
+        const preferredRewriteId =
+          rewriteIdFromQuery &&
+          completedRewrites.some((item) => item.id === rewriteIdFromQuery)
+            ? rewriteIdFromQuery
+            : completedRewrites[0].id;
+        setSelectedRewriteId(preferredRewriteId);
+
+        const next = new URLSearchParams(searchParams);
+        next.set("rewrite_id", String(preferredRewriteId));
+        setSearchParams(next, { replace: true });
       }
 
       const coverList = await getCoversByRewrites(
@@ -144,6 +173,16 @@ export const CoversPage: React.FC = () => {
   const closeCurrentStream = () => {
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
+  };
+
+  const syncRewriteQuery = (rewriteId: number | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (rewriteId) {
+      next.set("rewrite_id", String(rewriteId));
+    } else {
+      next.delete("rewrite_id");
+    }
+    setSearchParams(next, { replace: true });
   };
 
   const handleGenerateCover = () => {
@@ -220,6 +259,7 @@ export const CoversPage: React.FC = () => {
             return nextMap;
           });
           setSelectedRewriteId(cover.rewrite_id);
+          syncRewriteQuery(cover.rewrite_id);
           setStreamStatus("success");
           setStreamMessage("封面已生成");
         } catch (error) {
@@ -316,11 +356,13 @@ export const CoversPage: React.FC = () => {
             <label>目标文章</label>
             <select
               value={selectedRewriteId || ""}
-              onChange={(event) =>
-                setSelectedRewriteId(
-                  event.target.value ? Number(event.target.value) : null,
-                )
-              }
+              onChange={(event) => {
+                const rewriteId = event.target.value
+                  ? Number(event.target.value)
+                  : null;
+                setSelectedRewriteId(rewriteId);
+                syncRewriteQuery(rewriteId);
+              }}
             >
               <option value="">请选择文章</option>
               {rewrites.map((rewrite) => (
@@ -433,7 +475,6 @@ export const CoversPage: React.FC = () => {
           <div className="covers-v2-preview-header">
             <div>
               <h2>预览</h2>
-              <span>V5.0 模型</span>
             </div>
             <div className="covers-v2-actions">
               <button
@@ -499,7 +540,10 @@ export const CoversPage: React.FC = () => {
                     key={cover.id}
                     type="button"
                     className={`covers-v2-history-item ${selectedRewriteId === cover.rewrite_id ? "active" : ""}`}
-                    onClick={() => setSelectedRewriteId(cover.rewrite_id)}
+                    onClick={() => {
+                      setSelectedRewriteId(cover.rewrite_id);
+                      syncRewriteQuery(cover.rewrite_id);
+                    }}
                     title={`文章 #${cover.rewrite_id}`}
                   >
                     {cover.image_url ? (

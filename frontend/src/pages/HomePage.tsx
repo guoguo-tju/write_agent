@@ -9,6 +9,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { AppTopNav, Button, Input, Textarea } from "../components";
 import {
   extractStyle,
@@ -36,7 +37,20 @@ const summarize = (value: string, maxLength = 34) => {
   return `${compact.slice(0, maxLength)}...`;
 };
 
+const parseRewriteId = (value: string | null): number | null => {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+};
+
 export const HomePage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rewriteIdFromQuery = parseRewriteId(searchParams.get("rewrite_id"));
   const [sourceContent, setSourceContent] = useState("");
   const [selectedStyleId, setSelectedStyleId] = useState<number | undefined>();
   const [targetLength, setTargetLength] = useState<number>(1000);
@@ -87,6 +101,17 @@ export const HomePage: React.FC = () => {
         setSelectedStyleId(stylesData[0].id);
       }
       setRewrites(rewritesData);
+
+      if (rewritesData.length > 0) {
+        const hasQuery = rewriteIdFromQuery
+          ? rewritesData.some((item) => item.id === rewriteIdFromQuery)
+          : false;
+        if (!hasQuery) {
+          const next = new URLSearchParams(searchParams);
+          next.set("rewrite_id", String(rewritesData[0].id));
+          setSearchParams(next, { replace: true });
+        }
+      }
     } catch (error) {
       console.error("加载数据失败:", error);
     }
@@ -121,6 +146,7 @@ export const HomePage: React.FC = () => {
     setIsLoading(true);
     setRewrittenContent("");
     setResultWordCount(0);
+    let currentRewriteId: number | null = null;
 
     eventSourceRef.current = rewriteWithStream(
       {
@@ -148,7 +174,18 @@ export const HomePage: React.FC = () => {
           );
         }
         setIsLoading(false);
+        if (currentRewriteId) {
+          const next = new URLSearchParams(searchParams);
+          next.set("rewrite_id", String(currentRewriteId));
+          setSearchParams(next, { replace: true });
+        }
         void loadData();
+      },
+      (taskId) => {
+        currentRewriteId = taskId;
+        const next = new URLSearchParams(searchParams);
+        next.set("rewrite_id", String(taskId));
+        setSearchParams(next, { replace: true });
       },
     );
   };
@@ -358,8 +395,13 @@ export const HomePage: React.FC = () => {
                 <button
                   key={item.id}
                   type="button"
-                  className="home-v2-history-item"
-                  onClick={() => setSelectedHistory(item)}
+                  className={`home-v2-history-item ${rewriteIdFromQuery === item.id ? "active" : ""}`}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    next.set("rewrite_id", String(item.id));
+                    setSearchParams(next, { replace: true });
+                    setSelectedHistory(item);
+                  }}
                 >
                   <div className="home-v2-history-title">
                     #{item.id} {summarize(item.source_article)}

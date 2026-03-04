@@ -141,6 +141,12 @@
   color: #e2ece5;
 }
 
+.reviews-v2-result-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .reviews-v2-queue-list {
   flex: 1;
   overflow: auto;
@@ -280,6 +286,97 @@
   color: #f2b4b4;
   padding: 9px 12px;
   font-size: 13px;
+}
+
+.reviews-v2-inline-edit {
+  margin: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reviews-v2-inline-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #97afa3;
+  font-size: 12px;
+}
+
+.reviews-v2-inline-edit textarea,
+.reviews-v2-inline-edit input {
+  width: 100%;
+  border: 1px solid #2a3d34;
+  border-radius: 8px;
+  background: #0f1714;
+  color: #dde9df;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.reviews-v2-inline-edit textarea {
+  min-height: 280px;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+.reviews-v2-inline-edit textarea:focus,
+.reviews-v2-inline-edit input:focus {
+  outline: none;
+  border-color: #4c836a;
+  box-shadow: 0 0 0 1px #4c836a;
+}
+
+.reviews-v2-manual-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.reviews-v2-manual-actions button {
+  border: 1px solid #2a3d34;
+  border-radius: 8px;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reviews-v2-manual-actions button.ghost {
+  background: #111d18;
+  color: #a9beb2;
+}
+
+.reviews-v2-manual-actions button.primary {
+  border-color: #53836f;
+  background: #2e624f;
+  color: #edf4ef;
+}
+
+.reviews-v2-manual-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.reviews-v2-manual-empty {
+  margin-top: 10px;
+  border: 1px dashed #2f473c;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #879d92;
+}
+
+.reviews-v2-manual-message {
+  margin-top: 10px;
+  border: 1px solid #395a4b;
+  border-radius: 8px;
+  background: rgba(54, 106, 84, 0.2);
+  color: #b2d8c5;
+  padding: 8px 10px;
+  font-size: 12px;
 }
 
 .reviews-v2-empty {
