@@ -149,11 +149,17 @@
 
 .reviews-v2-queue-list {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.reviews-v2-queue-pagination {
+  border-top: 1px solid #22342c;
+  padding: 10px;
 }
 
 .reviews-v2-queue-item {
@@ -376,6 +382,223 @@
   background: rgba(54, 106, 84, 0.2);
   color: #b2d8c5;
   padding: 8px 10px;
+  font-size: 12px;
+}
+
+.reviews-v2-feedback-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.64);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.reviews-v2-feedback-modal {
+  width: min(940px, 100%);
+  max-height: 86vh;
+  border: 1px solid #2a3d34;
+  border-radius: 12px;
+  background: #111a16;
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}
+
+.reviews-v2-feedback-modal-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid #22342c;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.reviews-v2-feedback-modal-head h3 {
+  margin: 0;
+  font-family: "Noto Serif SC", serif;
+  font-size: 20px;
+  color: #f0f6f2;
+}
+
+.reviews-v2-feedback-modal-head p {
+  margin: 4px 0 0;
+  color: #8ea79a;
+  font-size: 12px;
+}
+
+.reviews-v2-feedback-modal-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reviews-v2-feedback-modal-actions button {
+  border: 1px solid #2a3d34;
+  border-radius: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  background: #111d18;
+  color: #a7bbb0;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reviews-v2-feedback-modal-actions button:hover:not(:disabled) {
+  border-color: #3f6453;
+  color: #e2ece5;
+}
+
+.reviews-v2-feedback-modal-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.reviews-v2-feedback-modal-body {
+  padding: 12px 14px 14px;
+  overflow: auto;
+}
+
+.reviews-v2-feedback {
+  margin: 0;
+  border: 1px solid #2a3d34;
+  border-radius: 10px;
+  background: #101915;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reviews-v2-feedback-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reviews-v2-feedback-head h3 {
+  margin: 0;
+  color: #eaf2ec;
+  font-size: 15px;
+}
+
+.reviews-v2-feedback-head span {
+  color: #8ca598;
+  font-size: 12px;
+}
+
+.reviews-v2-feedback-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reviews-v2-feedback-summary span {
+  border: 1px solid #2a3d34;
+  border-radius: 999px;
+  background: #111d18;
+  color: #a4b8ad;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.reviews-v2-feedback-summary strong {
+  margin-left: 4px;
+}
+
+.reviews-v2-feedback-summary strong.passed {
+  color: #7ed2ac;
+}
+
+.reviews-v2-feedback-summary strong.failed {
+  color: #f0a2a2;
+}
+
+.reviews-v2-feedback-reason {
+  border: 1px solid #2f473c;
+  border-radius: 8px;
+  background: #0f1714;
+  color: #dce8e1;
+  padding: 10px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.reviews-v2-feedback-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reviews-v2-feedback-issues article {
+  border: 1px solid #2f473c;
+  border-radius: 8px;
+  background: #0f1714;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reviews-v2-feedback-issues article > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.reviews-v2-feedback-issues strong {
+  color: #e7efe8;
+  font-size: 13px;
+}
+
+.reviews-v2-feedback-issues span {
+  border: 1px solid #2a3d34;
+  border-radius: 999px;
+  background: #111d18;
+  color: #8ea79a;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.reviews-v2-feedback-issues p {
+  margin: 0;
+  color: #cfe0d5;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.reviews-v2-feedback-raw {
+  border: 1px dashed #2f473c;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.reviews-v2-feedback-raw summary {
+  cursor: pointer;
+  color: #9fb6aa;
+  font-size: 12px;
+}
+
+.reviews-v2-feedback-raw pre,
+.reviews-v2-feedback-fallback pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  color: #c7ddd0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.reviews-v2-feedback-fallback {
+  border: 1px dashed #7a3f3f;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #e8baba;
   font-size: 12px;
 }
 

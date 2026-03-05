@@ -3,6 +3,7 @@ import {
   Clipboard,
   Copy,
   Download,
+  FolderOpen,
   Loader2,
   Plus,
   Send,
@@ -10,19 +11,29 @@ import {
   X,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
-import { AppTopNav, Button, Input, Textarea } from "../components";
+import { AppTopNav, Button, Input, Pagination, Textarea } from "../components";
 import {
   extractStyle,
-  getRewrites,
+  getMaterialsPage,
+  getRewrite,
+  getRewritesPage,
   getStyles,
   rewriteWithStream,
+  startReview,
+  type Material,
+  type RagRetrievedItem,
   type RewriteRecord,
   type WritingStyle,
 } from "../services/api";
 import "./HomePage.css";
 
 const TARGET_WORD_OPTIONS = [500, 800, 1000, 1500, 2000];
+const RAG_TOP_K_OPTIONS = [1, 3, 5];
 const IMAGE_PLACEHOLDER_REGEX = /\[配图建议\|名称:[^\]]+\]/g;
+const HISTORY_PAGE_SIZE = 10;
+const MATERIAL_PICKER_PAGE_SIZE = 10;
+
+type AutoReviewStatus = "idle" | "running" | "success" | "error";
 
 const formatTime = (value: string) => {
   const date = new Date(value);
@@ -48,18 +59,56 @@ const parseRewriteId = (value: string | null): number | null => {
   return parsed;
 };
 
+const parseRagRetrieved = (raw?: string): RagRetrievedItem[] => {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((item) => item && typeof item === "object")
+      .map((item) => {
+        const record = item as Record<string, unknown>;
+        return {
+          material_id: Number(record.material_id || 0),
+          title: String(record.title || "未命名素材"),
+          source_url: record.source_url ? String(record.source_url) : undefined,
+          tags: record.tags ? String(record.tags) : undefined,
+          content: String(record.content || ""),
+          score: Number(record.score || 0),
+        } satisfies RagRetrievedItem;
+      })
+      .filter((item) => item.content.trim().length > 0);
+  } catch {
+    return [];
+  }
+};
+
 export const HomePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const rewriteIdFromQuery = parseRewriteId(searchParams.get("rewrite_id"));
   const [sourceContent, setSourceContent] = useState("");
   const [selectedStyleId, setSelectedStyleId] = useState<number | undefined>();
   const [targetLength, setTargetLength] = useState<number>(1000);
+  const [enableRag, setEnableRag] = useState(true);
+  const [ragTopK, setRagTopK] = useState(3);
   const [styles, setStyles] = useState<WritingStyle[]>([]);
   const [rewrites, setRewrites] = useState<RewriteRecord[]>([]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [rewrittenContent, setRewrittenContent] = useState("");
   const [resultWordCount, setResultWordCount] = useState(0);
+  const [ragReferences, setRagReferences] = useState<RagRetrievedItem[]>([]);
+  const [autoReviewStatus, setAutoReviewStatus] = useState<AutoReviewStatus>("idle");
+  const [autoReviewMessage, setAutoReviewMessage] = useState("");
+  const [autoReviewRewriteId, setAutoReviewRewriteId] = useState<number | null>(null);
 
   const [selectedHistory, setSelectedHistory] = useState<RewriteRecord | null>(
     null,
@@ -69,6 +118,12 @@ export const HomePage: React.FC = () => {
   const [newStyleName, setNewStyleName] = useState("");
   const [newStyleContent, setNewStyleContent] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
+  const [showMaterialPicker, setShowMaterialPicker] = useState(false);
+  const [materialPickerItems, setMaterialPickerItems] = useState<Material[]>([]);
+  const [materialPickerPage, setMaterialPickerPage] = useState(1);
+  const [materialPickerTotal, setMaterialPickerTotal] = useState(0);
+  const [materialPickerKeyword, setMaterialPickerKeyword] = useState("");
+  const [isMaterialPickerLoading, setIsMaterialPickerLoading] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -80,8 +135,12 @@ export const HomePage: React.FC = () => {
   };
 
   useEffect(() => {
-    void loadData();
+    void loadStyles();
   }, []);
+
+  useEffect(() => {
+    void loadHistoryPage(historyPage);
+  }, [historyPage]);
 
   useEffect(() => {
     return () => {
@@ -90,31 +149,79 @@ export const HomePage: React.FC = () => {
     };
   }, []);
 
-  const loadData = async () => {
+  useEffect(() => {
+    if (!showMaterialPicker) {
+      return;
+    }
+    void loadMaterialPicker(materialPickerPage, materialPickerKeyword);
+  }, [showMaterialPicker, materialPickerPage, materialPickerKeyword]);
+
+  const loadStyles = async () => {
     try {
-      const [stylesData, rewritesData] = await Promise.all([
-        getStyles(),
-        getRewrites(),
-      ]);
+      const stylesData = await getStyles();
       setStyles(stylesData);
       if (!selectedStyleId && stylesData.length > 0) {
         setSelectedStyleId(stylesData[0].id);
       }
-      setRewrites(rewritesData);
+    } catch (error) {
+      console.error("加载风格失败:", error);
+    }
+  };
 
-      if (rewritesData.length > 0) {
-        const hasQuery = rewriteIdFromQuery
-          ? rewritesData.some((item) => item.id === rewriteIdFromQuery)
-          : false;
-        if (!hasQuery) {
-          const next = new URLSearchParams(searchParams);
-          next.set("rewrite_id", String(rewritesData[0].id));
-          setSearchParams(next, { replace: true });
-        }
+  const loadHistoryPage = async (page: number) => {
+    setIsHistoryLoading(true);
+    try {
+      const response = await getRewritesPage({
+        page,
+        limit: HISTORY_PAGE_SIZE,
+      });
+      setRewrites(response.items);
+      setHistoryTotal(response.total);
+
+      if (!rewriteIdFromQuery && response.items.length > 0 && page === 1) {
+        const next = new URLSearchParams(searchParams);
+        next.set("rewrite_id", String(response.items[0].id));
+        setSearchParams(next, { replace: true });
       }
     } catch (error) {
-      console.error("加载数据失败:", error);
+      console.error("加载改写历史失败:", error);
+    } finally {
+      setIsHistoryLoading(false);
     }
+  };
+
+  const loadMaterialPicker = async (page: number, keyword: string) => {
+    setIsMaterialPickerLoading(true);
+    try {
+      const response = await getMaterialsPage({
+        page,
+        limit: MATERIAL_PICKER_PAGE_SIZE,
+        keyword: keyword.trim() || undefined,
+      });
+      setMaterialPickerItems(response.items);
+      setMaterialPickerTotal(response.total);
+    } catch (error) {
+      console.error("加载素材库失败:", error);
+      setMaterialPickerItems([]);
+      setMaterialPickerTotal(0);
+    } finally {
+      setIsMaterialPickerLoading(false);
+    }
+  };
+
+  const openMaterialPicker = () => {
+    setShowMaterialPicker(true);
+    setMaterialPickerPage(1);
+    setMaterialPickerKeyword("");
+  };
+
+  const closeMaterialPicker = () => {
+    setShowMaterialPicker(false);
+  };
+
+  const handleSelectMaterialAsSource = (material: Material) => {
+    setSourceContent(material.content || "");
+    closeMaterialPicker();
   };
 
   const handleExtractStyle = async () => {
@@ -125,7 +232,7 @@ export const HomePage: React.FC = () => {
     setIsExtracting(true);
     try {
       await extractStyle(newStyleContent.trim(), newStyleName.trim());
-      await loadData();
+      await loadStyles();
       setShowNewStyle(false);
       setNewStyleName("");
       setNewStyleContent("");
@@ -133,6 +240,37 @@ export const HomePage: React.FC = () => {
       console.error("提取风格失败:", error);
     } finally {
       setIsExtracting(false);
+    }
+  };
+
+  const runAutoReview = async (rewriteId: number) => {
+    setAutoReviewStatus("running");
+    setAutoReviewRewriteId(rewriteId);
+    setAutoReviewMessage("主编审核中...");
+    try {
+      const review = await startReview({ rewrite_id: rewriteId });
+      const reviewPassed = review.result === "passed";
+      const score = review.total_score ? `，总分 ${review.total_score}` : "";
+      setAutoReviewStatus("success");
+      setAutoReviewMessage(
+        `主编审核已完成：${reviewPassed ? "通过" : "未通过"}${score}。`,
+      );
+    } catch (error) {
+      console.error("自动主编审核失败:", error);
+      setAutoReviewStatus("error");
+      setAutoReviewMessage(
+        error instanceof Error ? `主编审核失败：${error.message}` : "主编审核失败。",
+      );
+    }
+  };
+
+  const loadRagReferences = async (rewriteId: number) => {
+    try {
+      const rewrite = await getRewrite(rewriteId);
+      setRagReferences(parseRagRetrieved(rewrite.rag_retrieved));
+    } catch (error) {
+      console.error("加载引用素材失败:", error);
+      setRagReferences([]);
     }
   };
 
@@ -146,6 +284,10 @@ export const HomePage: React.FC = () => {
     setIsLoading(true);
     setRewrittenContent("");
     setResultWordCount(0);
+    setRagReferences([]);
+    setAutoReviewStatus("idle");
+    setAutoReviewMessage("");
+    setAutoReviewRewriteId(null);
     let currentRewriteId: number | null = null;
 
     eventSourceRef.current = rewriteWithStream(
@@ -153,6 +295,8 @@ export const HomePage: React.FC = () => {
         source_article: sourceContent,
         style_id: selectedStyleId,
         target_words: targetLength,
+        enable_rag: enableRag,
+        rag_top_k: ragTopK,
       },
       (chunk) => {
         setRewrittenContent((prev) => {
@@ -178,8 +322,14 @@ export const HomePage: React.FC = () => {
           const next = new URLSearchParams(searchParams);
           next.set("rewrite_id", String(currentRewriteId));
           setSearchParams(next, { replace: true });
+          void loadRagReferences(currentRewriteId);
+          void runAutoReview(currentRewriteId);
         }
-        void loadData();
+        if (historyPage !== 1) {
+          setHistoryPage(1);
+        } else {
+          void loadHistoryPage(1);
+        }
       },
       (taskId) => {
         currentRewriteId = taskId;
@@ -227,9 +377,16 @@ export const HomePage: React.FC = () => {
           <div className="home-v2-panel-header">
             <div>
               <h2>源文本</h2>
-              <span>草稿 V1</span>
+              <span>支持手动粘贴或从素材库选择</span>
             </div>
             <div className="home-v2-source-actions">
+              <button
+                type="button"
+                title="从素材库选择"
+                onClick={openMaterialPicker}
+              >
+                <FolderOpen size={15} />
+              </button>
               <button
                 type="button"
                 title="清空"
@@ -310,6 +467,31 @@ export const HomePage: React.FC = () => {
               </div>
             </div>
 
+            <div className="home-v2-compose-group">
+              <label>RAG 检索增强</label>
+              <div className="home-v2-rag-config">
+                <label className="home-v2-rag-toggle">
+                  <input
+                    type="checkbox"
+                    checked={enableRag}
+                    onChange={(event) => setEnableRag(event.target.checked)}
+                  />
+                  <span>{enableRag ? "已启用" : "已关闭"}</span>
+                </label>
+                <select
+                  value={String(ragTopK)}
+                  disabled={!enableRag}
+                  onChange={(event) => setRagTopK(Number(event.target.value))}
+                >
+                  {RAG_TOP_K_OPTIONS.map((count) => (
+                    <option key={count} value={count}>
+                      引用 {count} 条
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div className="home-v2-compose-actions">
               <Button
                 onClick={handleRewrite}
@@ -378,20 +560,69 @@ export const HomePage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {autoReviewStatus !== "idle" && (
+            <div className={`home-v2-review-status ${autoReviewStatus}`}>
+              <span>{autoReviewMessage}</span>
+              {autoReviewRewriteId && (
+                <a href={`/reviews?rewrite_id=${autoReviewRewriteId}`}>去审核页查看</a>
+              )}
+            </div>
+          )}
+
+          <section className="home-v2-rag-panel">
+            <div className="home-v2-rag-panel-head">
+              <h3>本次引用素材</h3>
+              <span>{enableRag ? `Top ${ragTopK}` : "RAG 已关闭"}</span>
+            </div>
+
+            {isLoading ? (
+              <div className="home-v2-rag-empty">改写完成后展示本次引用素材。</div>
+            ) : !enableRag ? (
+              <div className="home-v2-rag-empty">本次未启用 RAG 检索。</div>
+            ) : ragReferences.length === 0 ? (
+              <div className="home-v2-rag-empty">本次未命中素材。</div>
+            ) : (
+              <div className="home-v2-rag-list">
+                {ragReferences.map((item) => (
+                  <article
+                    key={`${item.material_id}-${item.title}-${item.score}`}
+                    className="home-v2-rag-item"
+                  >
+                    <div className="home-v2-rag-item-head">
+                      <strong>{item.title || `素材 #${item.material_id}`}</strong>
+                      <span>相似度 {(item.score * 100).toFixed(1)}%</span>
+                    </div>
+                    <p>{summarize(item.content, 160)}</p>
+                    <div className="home-v2-rag-item-meta">
+                      {item.tags && <span>标签：{item.tags}</span>}
+                      {item.source_url && (
+                        <a href={item.source_url} target="_blank" rel="noreferrer">
+                          查看来源
+                        </a>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         </section>
 
         <aside className="home-v2-history">
           <div className="home-v2-panel-header">
             <div>
               <h2>历史记录</h2>
-              <span>最近 {Math.min(rewrites.length, 20)} 条</span>
+              <span>每页 {HISTORY_PAGE_SIZE} 条</span>
             </div>
           </div>
           <div className="home-v2-history-list">
-            {rewrites.length === 0 ? (
+            {isHistoryLoading ? (
+              <div className="home-v2-empty">加载中...</div>
+            ) : rewrites.length === 0 ? (
               <div className="home-v2-empty">暂无历史记录</div>
             ) : (
-              rewrites.slice(0, 20).map((item) => (
+              rewrites.map((item) => (
                 <button
                   key={item.id}
                   type="button"
@@ -421,6 +652,14 @@ export const HomePage: React.FC = () => {
                 </button>
               ))
             )}
+          </div>
+          <div className="home-v2-history-pagination">
+            <Pagination
+              page={historyPage}
+              total={historyTotal}
+              limit={HISTORY_PAGE_SIZE}
+              onPageChange={(nextPage) => setHistoryPage(nextPage)}
+            />
           </div>
         </aside>
       </main>
@@ -453,6 +692,79 @@ export const HomePage: React.FC = () => {
                 disabled={!newStyleName.trim() || !newStyleContent.trim()}
               >
                 提取风格
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMaterialPicker && (
+        <div className="modal-overlay" onClick={closeMaterialPicker}>
+          <div
+            className="modal modal-lg material-picker-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3>从素材库选择原文</h3>
+            <div className="material-picker-toolbar">
+              <input
+                value={materialPickerKeyword}
+                onChange={(event) => {
+                  setMaterialPickerKeyword(event.target.value);
+                  setMaterialPickerPage(1);
+                }}
+                placeholder="搜索标题、内容、来源"
+              />
+              {materialPickerKeyword && (
+                <button
+                  type="button"
+                  className="material-picker-clear"
+                  onClick={() => {
+                    setMaterialPickerKeyword("");
+                    setMaterialPickerPage(1);
+                  }}
+                >
+                  清空
+                </button>
+              )}
+            </div>
+
+            <div className="material-picker-list">
+              {isMaterialPickerLoading ? (
+                <div className="material-picker-empty">加载中...</div>
+              ) : materialPickerItems.length === 0 ? (
+                <div className="material-picker-empty">暂无可选素材</div>
+              ) : (
+                materialPickerItems.map((material) => (
+                  <button
+                    key={material.id}
+                    type="button"
+                    className="material-picker-item"
+                    onClick={() => handleSelectMaterialAsSource(material)}
+                  >
+                    <div className="material-picker-item-head">
+                      <strong>{material.title || `素材 #${material.id}`}</strong>
+                      <span>{formatTime(material.created_at)}</span>
+                    </div>
+                    <p>{summarize(material.content || "", 160)}</p>
+                    {material.source_url && (
+                      <div className="material-picker-item-meta">
+                        来源：{material.source_url}
+                      </div>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="material-picker-footer">
+              <Pagination
+                page={materialPickerPage}
+                total={materialPickerTotal}
+                limit={MATERIAL_PICKER_PAGE_SIZE}
+                onPageChange={(nextPage) => setMaterialPickerPage(nextPage)}
+              />
+              <Button variant="secondary" onClick={closeMaterialPicker}>
+                关闭
               </Button>
             </div>
           </div>

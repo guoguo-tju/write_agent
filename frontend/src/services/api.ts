@@ -8,6 +8,9 @@ import type {
   CoverRecord,
   CoverStyle,
   SSEMessage,
+  PaginatedResponse,
+  RagRetrievedItem,
+  MaterialRetrieveResponse,
   WorkflowSnapshot,
   WorkflowStepStatus,
 } from "../types";
@@ -22,6 +25,9 @@ export type {
   CoverRecord,
   CoverStyle,
   SSEMessage,
+  PaginatedResponse,
+  RagRetrievedItem,
+  MaterialRetrieveResponse,
   WorkflowSnapshot,
   WorkflowStepStatus,
 };
@@ -192,24 +198,72 @@ export const deleteStyle = async (id: number): Promise<void> => {
 
 // ========== 素材管理 ==========
 
+export interface AddMaterialRequest {
+  content?: string;
+  source?: string;
+  tags?: string;
+  title?: string;
+}
+
+export interface UpdateMaterialRequest {
+  title?: string;
+  content?: string;
+  source?: string;
+  tags?: string;
+}
+
 export const addMaterial = async (
-  content: string,
+  payloadOrContent: AddMaterialRequest | string,
   source?: string,
   tags?: string,
   title?: string,
 ): Promise<Material> => {
-  const derivedTitle =
-    title?.trim() ||
-    source?.trim() ||
-    content.trim().split("\n")[0].slice(0, 50) ||
-    "未命名素材";
+  const payload: AddMaterialRequest =
+    typeof payloadOrContent === "string"
+      ? {
+          content: payloadOrContent,
+          source,
+          tags,
+          title,
+        }
+      : payloadOrContent;
+
+  const content = payload.content?.trim();
+  const sourceUrl = payload.source?.trim();
+  const derivedTitle = payload.title?.trim() || content?.split("\n")[0].slice(0, 50);
 
   const response = await api.post<Material>("/api/materials", {
-    title: derivedTitle,
+    title: derivedTitle || undefined,
     content,
-    source_url: source,
-    tags,
+    source_url: sourceUrl,
+    tags: payload.tags?.trim() || undefined,
   });
+  return response.data;
+};
+
+export interface MaterialsPageQuery {
+  page?: number;
+  limit?: number;
+  tags?: string;
+  keyword?: string;
+}
+
+export const getMaterialsPage = async (
+  query: MaterialsPageQuery = {},
+): Promise<PaginatedResponse<Material>> => {
+  const params = new URLSearchParams();
+  params.set("page", String(query.page ?? 1));
+  params.set("limit", String(query.limit ?? 10));
+  if (query.tags) {
+    params.set("tags", query.tags);
+  }
+  if (query.keyword) {
+    params.set("keyword", query.keyword);
+  }
+
+  const response = await api.get<PaginatedResponse<Material>>(
+    `/api/materials?${params.toString()}`,
+  );
   return response.data;
 };
 
@@ -225,6 +279,30 @@ export const getMaterial = async (id: number): Promise<Material> => {
 
 export const deleteMaterial = async (id: number): Promise<void> => {
   await api.delete(`/api/materials/${id}`);
+};
+
+export const updateMaterial = async (
+  id: number,
+  payload: UpdateMaterialRequest,
+): Promise<Material> => {
+  const response = await api.patch<Material>(`/api/materials/${id}`, {
+    title: payload.title,
+    content: payload.content,
+    source_url: payload.source,
+    tags: payload.tags,
+  });
+  return response.data;
+};
+
+export const retrieveMaterials = async (
+  query: string,
+  topK = 5,
+): Promise<MaterialRetrieveResponse> => {
+  const response = await api.post<MaterialRetrieveResponse>("/api/materials/retrieve", {
+    query,
+    top_k: topK,
+  });
+  return response.data;
 };
 
 // ========== 改写 ==========
@@ -337,6 +415,28 @@ export const startRewrite = async (
 
 export const getRewrite = async (id: number): Promise<RewriteRecord> => {
   const response = await api.get<RewriteRecord>(`/api/rewrites/${id}`);
+  return response.data;
+};
+
+export interface RewritesPageQuery {
+  page?: number;
+  limit?: number;
+  styleId?: number;
+}
+
+export const getRewritesPage = async (
+  query: RewritesPageQuery = {},
+): Promise<PaginatedResponse<RewriteRecord>> => {
+  const params = new URLSearchParams();
+  params.set("page", String(query.page ?? 1));
+  params.set("limit", String(query.limit ?? 10));
+  if (query.styleId !== undefined) {
+    params.set("style_id", String(query.styleId));
+  }
+
+  const response = await api.get<PaginatedResponse<RewriteRecord>>(
+    `/api/rewrites?${params.toString()}`,
+  );
   return response.data;
 };
 

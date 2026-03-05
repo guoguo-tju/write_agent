@@ -28,7 +28,7 @@ from sqlmodel import SQLModel
 
 from write_agent.core.database import engine
 from write_agent.main import app
-from write_agent.models import WritingStyle
+from write_agent.models import Material, WritingStyle
 
 
 def setup_module() -> None:
@@ -224,3 +224,326 @@ def test_rewrite_service_url_fetch_failure_raises_value_error(
             style_id=style_id,
             target_words=200,
         )
+
+
+def test_materials_pagination_limit_and_total() -> None:
+    """素材列表应支持 limit 分页并返回正确 total。"""
+    client = TestClient(app)
+    marker = f"mat-page-{uuid.uuid4().hex[:8]}"
+
+    for idx in range(3):
+        _create_material_for_tests(
+            title=f"{marker}-title-{idx}",
+            content=f"{marker}-content-{idx}",
+            tags="分页,测试",
+            source_url=f"https://example.com/{marker}/{idx}",
+        )
+
+    resp = client.get(
+        "/api/materials",
+        params={"keyword": marker, "page": 1, "limit": 2},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["page"] == 1
+    assert data["limit"] == 2
+    assert data["total"] >= 3
+    assert len(data["items"]) == 2
+
+
+def test_materials_pagination_with_tags_and_keyword() -> None:
+    """素材列表应支持 tags + keyword 组合过滤并可翻页。"""
+    client = TestClient(app)
+    marker = f"mat-mix-{uuid.uuid4().hex[:8]}"
+
+    first_id = _create_material_for_tests(
+        title=f"{marker}-a",
+        content=f"{marker}-content-a",
+        tags="组合过滤,测试",
+        source_url=f"https://example.com/{marker}/a",
+    )
+    second_id = _create_material_for_tests(
+        title=f"{marker}-b",
+        content=f"{marker}-content-b",
+        tags="组合过滤,测试",
+        source_url=f"https://example.com/{marker}/b",
+    )
+    # 干扰数据：同标签不同关键字
+    _create_material_for_tests(
+        title="noise-material",
+        content="unrelated-keyword",
+        tags="组合过滤,测试",
+        source_url="https://example.com/noise",
+    )
+
+    page1 = client.get(
+        "/api/materials",
+        params={
+            "tags": "组合过滤",
+            "keyword": marker,
+            "page": 1,
+            "limit": 1,
+        },
+    )
+    page2 = client.get(
+        "/api/materials",
+        params={
+            "tags": "组合过滤",
+            "keyword": marker,
+            "page": 2,
+            "limit": 1,
+        },
+    )
+
+    assert page1.status_code == 200
+    assert page2.status_code == 200
+
+    data1 = page1.json()
+    data2 = page2.json()
+    assert data1["total"] >= 2
+    assert data2["total"] >= 2
+    assert len(data1["items"]) == 1
+    assert len(data2["items"]) == 1
+
+    ids = {data1["items"][0]["id"], data2["items"][0]["id"]}
+    assert ids.issubset({first_id, second_id})
+    assert len(ids) == 2
+
+
+def test_create_material_with_url_only_wechat_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """仅提交公众号 URL 时，后端应自动抓取正文并创建素材。"""
+    client = TestClient(app)
+    marker = f"wechat-url-only-{uuid.uuid4().hex[:6]}"
+
+    from write_agent.api.materials import material_service
+
+    monkeypatch.setattr(
+        material_service,
+        "_fetch_url_content",
+        lambda _url: f"{marker} 正文内容",
+    )
+    monkeypatch.setattr(
+        material_service.rag_service,
+        "add_material",
+        lambda *args, **kwargs: None,
+    )
+
+    resp = client.post(
+        "/api/materials",
+        json={
+            "source_url": "https://mp.weixin.qq.com/s/test-demo",
+            "tags": "链接抓取,公众号",
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert marker in data["content"]
+    assert data["source_url"] == "https://mp.weixin.qq.com/s/test-demo"
+
+
+def test_create_material_with_url_only_twitter_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """仅提交 Twitter/X URL 时，后端应支持 best-effort 自动抓取。"""
+    client = TestClient(app)
+    marker = f"twitter-url-only-{uuid.uuid4().hex[:6]}"
+
+    from write_agent.api.materials import material_service
+
+    monkeypatch.setattr(
+        material_service,
+        "_fetch_url_content",
+        lambda _url: f"{marker} tweet 内容",
+    )
+    monkeypatch.setattr(
+        material_service.rag_service,
+        "add_material",
+        lambda *args, **kwargs: None,
+    )
+
+    resp = client.post(
+        "/api/materials",
+        json={
+            "source_url": "https://x.com/demo/status/1888888888888888888",
+            "tags": "链接抓取,twitter",
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert marker in data["content"]
+    assert data["source_url"] == "https://x.com/demo/status/1888888888888888888"
+
+
+def test_create_material_with_url_only_auto_infers_title_from_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """仅 URL 且未传 title 时，应自动从抓取内容首行推断标题。"""
+    client = TestClient(app)
+
+    from write_agent.api.materials import material_service
+
+    monkeypatch.setattr(
+        material_service,
+        "_fetch_url_content",
+        lambda _url: "这是一篇自动解析出来的文章标题\n\n正文内容",
+    )
+    monkeypatch.setattr(
+        material_service.rag_service,
+        "add_material",
+        lambda *args, **kwargs: None,
+    )
+
+    resp = client.post(
+        "/api/materials",
+        json={"source_url": "https://mp.weixin.qq.com/s/title-auto"},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["title"] == "这是一篇自动解析出来的文章标题"
+    assert data["source_url"] == "https://mp.weixin.qq.com/s/title-auto"
+
+
+def test_create_material_with_url_only_fetch_failure_returns_400(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """链接抓取失败时应阻止保存并返回 400。"""
+    client = TestClient(app)
+
+    from write_agent.api.materials import material_service
+
+    monkeypatch.setattr(material_service, "_fetch_url_content", lambda _url: None)
+
+    resp = client.post(
+        "/api/materials",
+        json={"source_url": "https://mp.weixin.qq.com/s/failed-fetch"},
+    )
+
+    assert resp.status_code == 400
+    assert "无法从 URL 抓取内容" in resp.json()["detail"]
+
+
+def test_materials_retrieve_returns_enriched_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """素材检索测试接口应返回 enrich 后字段并支持缺失素材降级。"""
+    client = TestClient(app)
+    marker = f"mat-retrieve-{uuid.uuid4().hex[:8]}"
+    material_id = _create_material_for_tests(
+        title=f"{marker}-title",
+        content=f"{marker}-content",
+        tags="检索,测试",
+        source_url=f"https://example.com/{marker}",
+    )
+
+    from write_agent.api.materials import material_service
+
+    monkeypatch.setattr(
+        material_service.rag_service,
+        "search",
+        lambda query, top_k: [
+            {"material_id": material_id, "content": "fallback-content", "score": 0.91},
+            {"material_id": 99999999, "content": "orphan-content", "score": 0.32},
+        ],
+    )
+
+    resp = client.post(
+        "/api/materials/retrieve",
+        json={"query": "测试检索问题", "top_k": 5},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 2
+    assert len(data["items"]) == 2
+
+    first = data["items"][0]
+    assert first["material_id"] == material_id
+    assert first["title"] == f"{marker}-title"
+    assert first["source_url"] == f"https://example.com/{marker}"
+    assert first["tags"] == "检索,测试"
+    assert first["content"] == f"{marker}-content"
+    assert isinstance(first["score"], float)
+
+    second = data["items"][1]
+    assert second["material_id"] == 99999999
+    assert second["title"] == "素材 #99999999"
+    assert second["content"] == "orphan-content"
+
+
+def test_update_material_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PATCH /api/materials/{id} 应支持更新正文并返回最新字段。"""
+    client = TestClient(app)
+    marker = f"mat-update-{uuid.uuid4().hex[:8]}"
+    material_id = _create_material_for_tests(
+        title=f"{marker}-old-title",
+        content=f"{marker}-old-content",
+        tags="旧标签",
+        source_url=f"https://example.com/{marker}/old",
+    )
+
+    from write_agent.api.materials import material_service
+
+    monkeypatch.setattr(material_service.rag_service, "delete_material", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(material_service.rag_service, "add_material", lambda *_args, **_kwargs: None)
+
+    resp = client.patch(
+        f"/api/materials/{material_id}",
+        json={
+            "title": f"{marker}-new-title",
+            "content": f"{marker}-new-content",
+            "tags": "新标签,测试",
+            "source_url": f"https://example.com/{marker}/new",
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == material_id
+    assert data["title"] == f"{marker}-new-title"
+    assert data["content"] == f"{marker}-new-content"
+    assert data["tags"] == "新标签,测试"
+    assert data["source_url"] == f"https://example.com/{marker}/new"
+
+
+def test_update_material_not_found_returns_404() -> None:
+    """PATCH 不存在的素材应返回 404。"""
+    client = TestClient(app)
+
+    resp = client.patch(
+        "/api/materials/99999999",
+        json={
+            "title": "missing",
+            "content": "missing-content",
+        },
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "素材不存在"
+
+
+def _create_material_for_tests(
+    title: str,
+    content: str,
+    tags: str,
+    source_url: str,
+) -> int:
+    with Session(engine) as session:
+        material = Material(
+            title=title,
+            content=content,
+            tags=tags,
+            source_url=source_url,
+            embedding_status="completed",
+        )
+        session.add(material)
+        session.commit()
+        session.refresh(material)
+        return material.id

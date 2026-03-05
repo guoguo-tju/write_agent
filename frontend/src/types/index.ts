@@ -32,6 +32,20 @@ export interface Material {
   updated_at?: string;
 }
 
+export interface RagRetrievedItem {
+  material_id: number;
+  title: string;
+  source_url?: string;
+  tags?: string;
+  content: string;
+  score: number;
+}
+
+export interface MaterialRetrieveResponse {
+  items: RagRetrievedItem[];
+  total: number;
+}
+
 // 改写记录
 export interface RewriteRecord {
   id: number;
@@ -98,6 +112,13 @@ export interface CoverStyle {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 // API响应类型
