@@ -8,6 +8,7 @@
 - 快速开始统一为“少步骤可起服务”的口径，并固定默认验收数据库为 `./data/acceptance_write_agent.db`。
 - 替换 `docs/screenshots/` 下 5 张页面截图为最新 UI 版本（同名覆盖，链接路径不变）。
 - 为规避 GitHub 图片缓存，README 截图链接切换到 `*-v2.png` 新文件名。
+- 在中英文 README 开头补充“业务价值/项目亮点”段，并显式说明写作阶段 RAG 检索与引用展示能力及降级口径。
 
 ### Verification
 - 校验中英文 README 双向跳转链接可用。

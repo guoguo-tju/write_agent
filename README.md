@@ -4,6 +4,12 @@ A full-stack AI writing agent for style extraction, rewriting, review, and cover
 
 [中文文档](./README.zh-CN.md)
 
+## Highlights and Business Value
+
+- Productize fragmented writing actions into one standardized loop: material retrieval, style-constrained rewriting, quality review, human refinement, and cover generation.
+- In our practical usage, value shows up in two dimensions: productivity (long-form output can move from hour-level effort to roughly tens-of-minutes), and quality (more stable style, reviewable outputs, and replayable process instead of one-shot prompt luck).
+- During writing, the app can run RAG retrieval against your materials library and show cited materials in the output context for traceability.
+
 ## Core Workflow and Screenshots
 
 1. **Rewrite**: input source text, pick style, stream output.
@@ -46,7 +52,7 @@ cp .env.example .env
 Edit `.env` with:
 
 - Required: `OPENAI_API_KEY`, `VOLCENGINE_API_KEY`
-- Optional: `SILICONFLOW_API_KEY` (for RAG embedding/retrieval)
+- Optional: `SILICONFLOW_API_KEY` (for writing-time RAG embedding/retrieval and citation display)
 
 ### 3. Start backend
 
@@ -66,7 +72,7 @@ npm run dev
 - Frontend: `http://127.0.0.1:5173`
 - Backend docs: `http://127.0.0.1:8000/docs`
 
-Note: if `SILICONFLOW_API_KEY` is not set, RAG-related features may be limited, but the main flow still works.
+Note: without `SILICONFLOW_API_KEY`, the main flow still runs, but writing-time RAG retrieval/citation is limited.
 
 ## Project Structure
 
