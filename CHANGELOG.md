@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-03-06
+
+### Changed
+- 重构 `README.md` 与 `README.zh-CN.md` 为双语同构精简结构：流程与截图 -> 快速开始 -> 项目结构 -> FAQ -> 许可证。
+- 移除 README 中冗长章节（独立技术栈细节、环境变量大段说明、运行验证长清单、贡献指南、API 明细叙述），聚焦开源项目首屏可读性与上手效率。
+- 快速开始统一为“少步骤可起服务”的口径，并固定默认验收数据库为 `./data/acceptance_write_agent.db`。
+- 替换 `docs/screenshots/` 下 5 张页面截图为最新 UI 版本（同名覆盖，链接路径不变）。
+
+### Verification
+- 校验中英文 README 双向跳转链接可用。
+- 校验 5 张截图路径与文件存在性。
+
 ## 2026-03-05
 
 ### Added
@@ -21,4 +33,3 @@
 - `pytest -q` 全量通过。
 - `pytest -q tests/test_api_regressions.py` 通过（新增素材 URL-only、retrieve、update 回归用例）。
 - `cd frontend && npm run build` 通过。
-
