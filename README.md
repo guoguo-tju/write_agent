@@ -8,23 +8,23 @@ A full-stack AI writing agent for style extraction, rewriting, review, and cover
 
 1. **Rewrite**: input source text, pick style, stream output.
 
-![Rewrite Page](docs/screenshots/rewrite-page.png)
+![Rewrite Page](docs/screenshots/rewrite-page-v2.png)
 
 2. **Style Management**: create and reuse writing style DNA.
 
-![Styles Page](docs/screenshots/styles-page.png)
+![Styles Page](docs/screenshots/styles-page-v2.png)
 
 3. **Materials (RAG)**: collect materials, test retrieval, and reuse in writing.
 
-![Materials Page](docs/screenshots/materials-page.png)
+![Materials Page](docs/screenshots/materials-page-v2.png)
 
 4. **Review**: inspect rewrite results and do manual edits when needed.
 
-![Reviews Page](docs/screenshots/reviews-page.png)
+![Reviews Page](docs/screenshots/reviews-page-v2.png)
 
 5. **Cover Generation**: generate covers from rewrite results with multiple modes and ratios.
 
-![Covers Page](docs/screenshots/covers-page.png)
+![Covers Page](docs/screenshots/covers-page-v2.png)
 
 ## Quick Start
 

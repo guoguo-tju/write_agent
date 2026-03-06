@@ -8,23 +8,23 @@
 
 1. **改写**：输入原文、选择风格、流式输出结果。
 
-![改写页面](docs/screenshots/rewrite-page.png)
+![改写页面](docs/screenshots/rewrite-page-v2.png)
 
 2. **风格管理**：创建并复用写作风格 DNA。
 
-![风格页面](docs/screenshots/styles-page.png)
+![风格页面](docs/screenshots/styles-page-v2.png)
 
 3. **素材库（RAG）**：收集素材、检索测试、写作时引用。
 
-![素材库页面](docs/screenshots/materials-page.png)
+![素材库页面](docs/screenshots/materials-page-v2.png)
 
 4. **审核**：查看改写结果并支持人工二次编辑。
 
-![审核页面](docs/screenshots/reviews-page.png)
+![审核页面](docs/screenshots/reviews-page-v2.png)
 
 5. **封面生成**：基于改写结果按多种模式和比例生成封面。
 
-![封面页面](docs/screenshots/covers-page.png)
+![封面页面](docs/screenshots/covers-page-v2.png)
 
 ## 快速开始
 
