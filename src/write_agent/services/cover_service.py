@@ -5,7 +5,11 @@ import asyncio
 import logging
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
+
+import requests
 from sqlmodel import Session, create_engine, select
 
 from write_agent.core import get_settings
@@ -29,6 +33,47 @@ class CoverService:
         self.base_url = settings.volcengine_base_url
         self.model = settings.volcengine_model
         self.api_key = settings.volcengine_api_key
+        self.cover_storage_dir = Path(settings.cover_storage_dir).resolve()
+        self.cover_media_url_prefix = settings.cover_media_url_prefix
+        if not self.cover_media_url_prefix.startswith("/"):
+            self.cover_media_url_prefix = f"/{self.cover_media_url_prefix}"
+        self.cover_storage_dir.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _infer_image_extension(source_url: str) -> str:
+        """根据远端 URL 推断文件扩展名。"""
+        ext = Path(urlparse(source_url).path).suffix.lower()
+        if ext in {".jpg", ".jpeg", ".png", ".webp"}:
+            return ext
+        return ".jpg"
+
+    def persist_image_locally(self, source_url: str, cover_id: int, rewrite_id: int) -> str:
+        """
+        将远端封面图下载到本地并返回静态访问 URL。
+        """
+        if not source_url:
+            raise ValueError("source_url 不能为空")
+
+        now = datetime.now()
+        relative_dir = Path(str(now.year), f"{now.month:02d}")
+        ext = self._infer_image_extension(source_url)
+        filename = f"cover-{cover_id}-rewrite-{rewrite_id}-{int(now.timestamp())}{ext}"
+
+        target_dir = self.cover_storage_dir / relative_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_path = target_dir / filename
+
+        response = requests.get(source_url, timeout=120, stream=True)
+        response.raise_for_status()
+
+        with target_path.open("wb") as fp:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    fp.write(chunk)
+
+        media_root = Path(self.cover_media_url_prefix.strip("/"))
+        local_url = Path("/") / media_root / relative_dir / filename
+        return local_url.as_posix()
 
     @staticmethod
     def _extract_keywords_fallback(content: str) -> str:
@@ -167,8 +212,6 @@ class CoverService:
         Returns:
             包含image_url和size的字典
         """
-        import requests
-
         url = f"{self.base_url}/api/v3/images/generations"
 
         headers = {

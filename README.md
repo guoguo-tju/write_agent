@@ -104,6 +104,10 @@ Check `SILICONFLOW_API_KEY` and network access to embedding service.
 
 Use `http://127.0.0.1:5173` for frontend and `http://127.0.0.1:8000` for backend, and keep `VITE_API_URL` aligned.
 
+### 5) Why are cover images not in GitHub?
+
+Cover images are runtime assets stored locally under `./data/covers`, and this directory is intentionally ignored by Git.
+
 ## License
 
 MIT License.

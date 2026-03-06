@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     volcengine_api_key: str = ""
     volcengine_base_url: str = "https://ark.cn-beijing.volces.com"
     volcengine_model: str = "doubao-seedream-4-5-251128"
+    cover_storage_dir: str = "./data/covers"
+    cover_media_url_prefix: str = "/media/covers"
 
     # 数据库配置
     database_url: str = "sqlite:///./data/acceptance_write_agent.db"

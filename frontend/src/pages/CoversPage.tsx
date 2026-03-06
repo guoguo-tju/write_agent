@@ -37,6 +37,8 @@ const ratioOptions = [
   { value: "9:16", label: "9:16" },
   { value: "3:4", label: "3:4" },
 ] as const;
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const NORMALIZED_API_BASE_URL = API_BASE_URL.replace(/\/+$/, "");
 
 const stageLabel: Partial<Record<SSEMessage["type"], string>> = {
   start: "准备生成...",
@@ -65,6 +67,19 @@ const parseRewriteId = (value: string | null): number | null => {
     return null;
   }
   return parsed;
+};
+
+const resolveImageUrl = (imageUrl?: string | null): string => {
+  if (!imageUrl) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(imageUrl)) {
+    return imageUrl;
+  }
+  if (imageUrl.startsWith("/")) {
+    return `${NORMALIZED_API_BASE_URL}${imageUrl}`;
+  }
+  return `${NORMALIZED_API_BASE_URL}/${imageUrl}`;
 };
 
 export const CoversPage: React.FC = () => {
@@ -328,8 +343,12 @@ export const CoversPage: React.FC = () => {
     if (!selectedCover?.image_url) {
       return;
     }
+    const resolvedUrl = resolveImageUrl(selectedCover.image_url);
+    if (!resolvedUrl) {
+      return;
+    }
     const link = document.createElement("a");
-    link.href = selectedCover.image_url;
+    link.href = resolvedUrl;
     link.target = "_blank";
     link.rel = "noreferrer";
     link.click();
@@ -517,7 +536,7 @@ export const CoversPage: React.FC = () => {
 
           <div className="covers-v2-preview-canvas">
             {selectedCover?.image_url ? (
-              <img src={selectedCover.image_url} alt="封面预览图" />
+              <img src={resolveImageUrl(selectedCover.image_url)} alt="封面预览图" />
             ) : (
               <div className="covers-v2-preview-placeholder">
                 <ImageIcon size={40} />
@@ -547,7 +566,10 @@ export const CoversPage: React.FC = () => {
                     title={`文章 #${cover.rewrite_id}`}
                   >
                     {cover.image_url ? (
-                      <img src={cover.image_url} alt={`封面 #${cover.rewrite_id}`} />
+                      <img
+                        src={resolveImageUrl(cover.image_url)}
+                        alt={`封面 #${cover.rewrite_id}`}
+                      />
                     ) : (
                       <div className="covers-v2-mini-placeholder">
                         <ImageIcon size={18} />

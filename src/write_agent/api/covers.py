@@ -215,11 +215,28 @@ async def _generate_cover_events(request: GenerateCoverRequest):
             size=generation_size,
             rewrite_id=request.rewrite_id,
         )
+        persisted_image_url = result["image_url"]
+        yield _sse_event({"type": "saving", "message": "正在归档封面图片..."})
+        try:
+            if cover_id is not None:
+                persisted_image_url = await asyncio.to_thread(
+                    cover_service.persist_image_locally,
+                    result["image_url"],
+                    cover_id,
+                    request.rewrite_id,
+                )
+        except Exception as persist_error:
+            logger.warning(
+                "封面本地归档失败，回退为远端 URL: cover_id=%s, rewrite_id=%s, error=%s",
+                cover_id,
+                request.rewrite_id,
+                persist_error,
+            )
 
         # 5. 更新记录（completed状态）
         cover_service.update_cover(
             cover_id=cover_id,
-            image_url=result["image_url"],
+            image_url=persisted_image_url,
             size=result.get("size"),
             status="completed",
         )
@@ -230,7 +247,7 @@ async def _generate_cover_events(request: GenerateCoverRequest):
                 "type": "done",
                 "id": cover_id,
                 "rewrite_id": request.rewrite_id,
-                "image_url": result["image_url"],
+                "image_url": persisted_image_url,
                 "size": result.get("size", generation_size),
                 "requested_size": request.size,
                 "resolved_size": generation_size,

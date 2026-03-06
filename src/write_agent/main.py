@@ -2,8 +2,10 @@
 FastAPI 应用入口 - 类似 Java Spring Boot 的 Application.java
 """
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from write_agent.core import setup_logging, get_settings, get_logger
 from write_agent.api import api_router
@@ -13,6 +15,11 @@ settings = get_settings()
 setup_logging(settings.log_level)
 
 logger = get_logger(__name__)
+cover_storage_dir = Path(settings.cover_storage_dir).resolve()
+cover_media_url_prefix = settings.cover_media_url_prefix
+if not cover_media_url_prefix.startswith("/"):
+    cover_media_url_prefix = f"/{cover_media_url_prefix}"
+cover_storage_dir.mkdir(parents=True, exist_ok=True)
 
 
 @asynccontextmanager
@@ -52,6 +59,11 @@ app.add_middleware(
 
 # 注册 API 路由
 app.include_router(api_router)
+app.mount(
+    cover_media_url_prefix,
+    StaticFiles(directory=str(cover_storage_dir)),
+    name="cover-media",
+)
 
 
 @app.get("/")

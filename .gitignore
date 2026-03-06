@@ -67,6 +67,8 @@ pnpm-debug.log*
 # ------------------------------
 /data/*.db
 /data/chroma/
+/data/covers/
+/data/covers/**
 /src/data/*.db
 /src/data/chroma/
 *.sqlite3

@@ -9,10 +9,15 @@
 - 替换 `docs/screenshots/` 下 5 张页面截图为最新 UI 版本（同名覆盖，链接路径不变）。
 - 为规避 GitHub 图片缓存，README 截图链接切换到 `*-v2.png` 新文件名。
 - 在中英文 README 开头补充“业务价值/项目亮点”段，并显式说明写作阶段 RAG 检索与引用展示能力及降级口径。
+- 封面生成改为“本地持久化优先”：生成后自动落盘到 `./data/covers`，后端新增 `/media/covers` 静态托管，避免历史图因临时签名 URL 过期而无法显示。
+- 前端封面页新增相对 `image_url` 解析逻辑，`/media/covers/...` 可在前后端不同端口时正常预览与下载。
+- `.gitignore` 增加 `data/covers` 目录忽略规则，并在 README FAQ 明确“封面图片仅本地保存，不上传 GitHub”。
 
 ### Verification
 - 校验中英文 README 双向跳转链接可用。
 - 校验 5 张截图路径与文件存在性。
+- `pytest -q tests/test_cover_local_storage.py tests/test_cover_size_mapping.py tests/test_api_regressions.py` 通过（25 passed）。
+- `cd frontend && npm run build` 通过。
 
 ## 2026-03-05
 
