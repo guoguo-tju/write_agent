@@ -28,7 +28,7 @@ import {
 } from "../services/api";
 import "./HomePage.css";
 
-const TARGET_WORD_OPTIONS = [100, 300, 500, 800, 1000, 1500, 2000];
+const TARGET_WORD_OPTIONS = [100, 300, 500, 800, 1000, 1500, 2000, 5000, 8000];
 const RAG_TOP_K_OPTIONS = [1, 3, 5];
 const IMAGE_PLACEHOLDER_REGEX = /\[配图建议\|名称:[^\]]+\]/g;
 const HISTORY_PAGE_SIZE = 10;
