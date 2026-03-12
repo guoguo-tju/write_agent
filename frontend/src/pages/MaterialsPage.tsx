@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { FilePlus2, Search, Trash2, X } from "lucide-react";
 import { AppTopNav, Pagination } from "../components";
+import { formatMessage, useLanguage } from "../i18n";
 import {
   addMaterial,
   deleteMaterial,
@@ -14,6 +15,7 @@ import "./MaterialsPage.css";
 
 const PAGE_SIZE = 10;
 const RETRIEVE_TOP_K_OPTIONS = [3, 5, 8];
+const ALL_TAG = "__all__";
 
 type MaterialInputMode = "text" | "link";
 type SourcePlatform = "none" | "wechat" | "twitter" | "generic" | "invalid";
@@ -26,12 +28,12 @@ const summarize = (value: string, maxLength = 170) => {
   return `${compact.slice(0, maxLength)}...`;
 };
 
-const formatDate = (value: string) => {
+const formatDate = (value: string, locale = "zh-CN") => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "--";
   }
-  return date.toLocaleString("zh-CN", {
+  return date.toLocaleString(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -45,7 +47,10 @@ const splitTags = (tags?: string) =>
     .map((tag) => tag.trim())
     .filter(Boolean);
 
-const extractErrorMessage = (error: unknown): string => {
+const extractErrorMessage = (
+  error: unknown,
+  fallbackMessage: string,
+): string => {
   if (typeof error === "object" && error !== null) {
     const maybeResponse = error as {
       response?: { data?: { detail?: string } };
@@ -61,7 +66,7 @@ const extractErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message;
   }
-  return "请求失败，请稍后重试";
+  return fallbackMessage;
 };
 
 const detectSourcePlatform = (value: string): SourcePlatform => {
@@ -91,6 +96,12 @@ const detectSourcePlatform = (value: string): SourcePlatform => {
 };
 
 export const MaterialsPage: React.FC = () => {
+  const { lang, text } = useLanguage();
+  const materialsText = text.materials;
+  const locale = lang === "zh" ? "zh-CN" : "en-US";
+  const tx = (zh: string, en: string) => (lang === "zh" ? zh : en);
+  const tf = (template: string, vars: Record<string, string | number>) =>
+    formatMessage(template, vars);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -108,7 +119,7 @@ export const MaterialsPage: React.FC = () => {
 
   const [searchKeyword, setSearchKeyword] = useState("");
   const [debouncedKeyword, setDebouncedKeyword] = useState("");
-  const [activeTag, setActiveTag] = useState<string>("全部");
+  const [activeTag, setActiveTag] = useState<string>(ALL_TAG);
 
   const [retrieveQuery, setRetrieveQuery] = useState("");
   const [retrieveTopK, setRetrieveTopK] = useState(5);
@@ -148,14 +159,17 @@ export const MaterialsPage: React.FC = () => {
 
   const allTags = useMemo(() => {
     const tagSet = new Set<string>();
-    if (activeTag !== "全部") {
+    if (activeTag !== ALL_TAG) {
       tagSet.add(activeTag);
     }
     materials.forEach((item) => {
       splitTags(item.tags).forEach((tag) => tagSet.add(tag));
     });
-    return ["全部", ...Array.from(tagSet).sort((left, right) => left.localeCompare(right, "zh-CN"))];
-  }, [activeTag, materials]);
+    return [
+      ALL_TAG,
+      ...Array.from(tagSet).sort((left, right) => left.localeCompare(right, locale)),
+    ];
+  }, [activeTag, locale, materials]);
 
   const loadMaterials = async (requestedPage: number) => {
     setIsPageLoading(true);
@@ -163,7 +177,7 @@ export const MaterialsPage: React.FC = () => {
       const response = await getMaterialsPage({
         page: requestedPage,
         limit: PAGE_SIZE,
-        tags: activeTag === "全部" ? undefined : activeTag,
+        tags: activeTag === ALL_TAG ? undefined : activeTag,
         keyword: debouncedKeyword || undefined,
       });
 
@@ -205,11 +219,11 @@ export const MaterialsPage: React.FC = () => {
     const normalizedTags = newTags.trim();
 
     if (inputMode === "text" && !normalizedContent) {
-      setSubmitError("文本模式下请先输入素材正文。");
+      setSubmitError(materialsText.textModeNeedContent);
       return;
     }
     if (inputMode === "link" && !normalizedSource) {
-      setSubmitError("链接模式下请先输入文章链接。");
+      setSubmitError(materialsText.linkModeNeedUrl);
       return;
     }
 
@@ -229,10 +243,10 @@ export const MaterialsPage: React.FC = () => {
       }
       setShowModal(false);
       resetModalForm();
-      setActiveTag("全部");
+      setActiveTag(ALL_TAG);
     } catch (error) {
       console.error("添加素材失败:", error);
-      setSubmitError(extractErrorMessage(error));
+      setSubmitError(extractErrorMessage(error, materialsText.requestFailed));
     } finally {
       setIsSubmitting(false);
     }
@@ -241,7 +255,7 @@ export const MaterialsPage: React.FC = () => {
   const handleRetrieve = async () => {
     const query = retrieveQuery.trim();
     if (!query) {
-      setRetrieveError("请输入检索问题。");
+      setRetrieveError(materialsText.needQuery);
       return;
     }
 
@@ -254,14 +268,18 @@ export const MaterialsPage: React.FC = () => {
     } catch (error) {
       console.error("素材检索失败:", error);
       setRetrieveItems([]);
-      setRetrieveError(extractErrorMessage(error));
+      setRetrieveError(extractErrorMessage(error, materialsText.requestFailed));
     } finally {
       setIsRetrieving(false);
     }
   };
 
   const handleDelete = async (material: Material) => {
-    const confirmed = window.confirm(`确定删除素材“${material.title || `#${material.id}`}”吗？`);
+    const confirmed = window.confirm(
+      tf(materialsText.deleteConfirm, {
+        name: material.title || `#${material.id}`,
+      }),
+    );
     if (!confirmed) {
       return;
     }
@@ -306,11 +324,11 @@ export const MaterialsPage: React.FC = () => {
     const normalizedTags = editTags.trim();
 
     if (!normalizedTitle) {
-      setEditError("标题不能为空。");
+      setEditError(materialsText.titleRequired);
       return;
     }
     if (!normalizedContent && !normalizedSource) {
-      setEditError("正文和来源链接不能同时为空。");
+      setEditError(materialsText.contentOrUrlRequired);
       return;
     }
 
@@ -327,7 +345,7 @@ export const MaterialsPage: React.FC = () => {
       closeEditModal();
     } catch (error) {
       console.error("更新素材失败:", error);
-      setEditError(extractErrorMessage(error));
+      setEditError(extractErrorMessage(error, materialsText.requestFailed));
     } finally {
       setIsUpdating(false);
     }
@@ -340,13 +358,13 @@ export const MaterialsPage: React.FC = () => {
       <main className="materials-v2-main">
         <aside className="materials-v2-sidebar">
           <div className="materials-v2-sidebar-head">
-            <h1>素材库</h1>
-            <p>管理引用片段、资料线索和灵感卡片。</p>
+            <h1>{materialsText.title}</h1>
+            <p>{materialsText.subtitle}</p>
           </div>
 
           <button className="materials-v2-create-btn" type="button" onClick={() => setShowModal(true)}>
             <FilePlus2 size={14} />
-            新增素材
+            {materialsText.addMaterial}
           </button>
 
           <label className="materials-v2-search">
@@ -354,7 +372,7 @@ export const MaterialsPage: React.FC = () => {
             <input
               value={searchKeyword}
               onChange={(event) => setSearchKeyword(event.target.value)}
-              placeholder="搜索标题、内容、来源、标签"
+              placeholder={materialsText.searchPlaceholder}
             />
             {searchKeyword && (
               <button type="button" onClick={() => setSearchKeyword("")}>
@@ -364,7 +382,7 @@ export const MaterialsPage: React.FC = () => {
           </label>
 
           <div className="materials-v2-tag-panel">
-            <h3>标签筛选</h3>
+            <h3>{materialsText.tagFilter}</h3>
             <div className="materials-v2-tags">
               {allTags.map((tag) => (
                 <button
@@ -376,7 +394,7 @@ export const MaterialsPage: React.FC = () => {
                     setPage(1);
                   }}
                 >
-                  {tag}
+                  {tag === ALL_TAG ? materialsText.all : tag}
                 </button>
               ))}
             </div>
@@ -385,31 +403,31 @@ export const MaterialsPage: React.FC = () => {
           <div className="materials-v2-stats">
             <div>
               <strong>{total}</strong>
-              <span>筛选总数</span>
+              <span>{tx("筛选总数", "Filtered Total")}</span>
             </div>
             <div>
               <strong>{materials.length}</strong>
-              <span>当前页条数</span>
+              <span>{tx("当前页条数", "Items on Page")}</span>
             </div>
           </div>
         </aside>
 
         <section className="materials-v2-content">
           <div className="materials-v2-content-head">
-            <h2>素材卡片</h2>
-            <span>共 {total} 条</span>
+            <h2>{tx("素材卡片", "Material Cards")}</h2>
+            <span>{tf(tx("共 {{count}} 条", "{{count}} total"), { count: total })}</span>
           </div>
 
           <section className="materials-v2-retrieve-panel">
             <div className="materials-v2-retrieve-head">
-              <h3>RAG 检索测试</h3>
-              <span>验证素材召回效果</span>
+              <h3>{materialsText.retrievalTitle}</h3>
+              <span>{materialsText.retrievalSubtitle}</span>
             </div>
             <div className="materials-v2-retrieve-controls">
               <input
                 value={retrieveQuery}
                 onChange={(event) => setRetrieveQuery(event.target.value)}
-                placeholder="输入一个写作问题，如：如何解释 OpenClaw 的协作架构？"
+                placeholder={materialsText.retrievalPlaceholder}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
@@ -432,14 +450,14 @@ export const MaterialsPage: React.FC = () => {
                 onClick={() => void handleRetrieve()}
                 disabled={isRetrieving}
               >
-                {isRetrieving ? "检索中..." : "开始检索"}
+                {isRetrieving ? materialsText.retrieving : materialsText.startRetrieve}
               </button>
             </div>
 
             {retrieveError && <div className="materials-v2-retrieve-error">{retrieveError}</div>}
 
             {isRetrieving ? (
-              <div className="materials-v2-retrieve-empty">正在检索素材...</div>
+              <div className="materials-v2-retrieve-empty">{materialsText.retrieving}</div>
             ) : retrieveItems.length > 0 ? (
               <div className="materials-v2-retrieve-list">
                 {retrieveItems.map((item) => (
@@ -448,37 +466,39 @@ export const MaterialsPage: React.FC = () => {
                     className="materials-v2-retrieve-item"
                   >
                     <div className="materials-v2-retrieve-item-head">
-                      <strong>{item.title || `素材 #${item.material_id}`}</strong>
-                      <span>相似度 {(item.score * 100).toFixed(1)}%</span>
+                      <strong>
+                        {item.title || tf(materialsText.unnamedMaterial, { id: item.material_id })}
+                      </strong>
+                      <span>{materialsText.scoreLabel} {(item.score * 100).toFixed(1)}%</span>
                     </div>
                     <p>{summarize(item.content, 130)}</p>
                     <div className="materials-v2-retrieve-item-meta">
-                      {item.tags ? <span>标签：{item.tags}</span> : <span>标签：-</span>}
+                      {item.tags ? <span>{item.tags}</span> : <span>-</span>}
                       {item.source_url ? (
                         <a href={item.source_url} target="_blank" rel="noreferrer">
-                          来源链接
+                          {materialsText.sourceLink}
                         </a>
                       ) : (
-                        <span>来源：-</span>
+                        <span>-</span>
                       )}
                     </div>
                   </article>
                 ))}
               </div>
             ) : hasRetrieved ? (
-              <div className="materials-v2-retrieve-empty">未召回到相关素材。</div>
+              <div className="materials-v2-retrieve-empty">{materialsText.emptyRetrieve}</div>
             ) : (
               <div className="materials-v2-retrieve-empty">
-                输入问题后可预览 RAG 召回素材。
+                {materialsText.retrievalSubtitle}
               </div>
             )}
           </section>
 
           {isPageLoading ? (
-            <div className="materials-v2-empty">加载中...</div>
+            <div className="materials-v2-empty">{tx("加载中...", "Loading...")}</div>
           ) : materials.length === 0 ? (
             <div className="materials-v2-empty">
-              {total === 0 ? "暂无素材，先新增一条吧。" : "当前页暂无数据。"}
+              {total === 0 ? materialsText.noMaterials : materialsText.noMaterialsInPage}
             </div>
           ) : (
             <div className="materials-v2-grid">
@@ -500,14 +520,16 @@ export const MaterialsPage: React.FC = () => {
                     }}
                   >
                     <div className="materials-v2-card-head">
-                      <h3>{material.title || `素材 #${material.id}`}</h3>
+                      <h3>{material.title || tf(materialsText.unnamedMaterial, { id: material.id })}</h3>
                       <button
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
                           void handleDelete(material);
                         }}
-                        aria-label={`删除素材 ${material.title || material.id}`}
+                        aria-label={tf(materialsText.deleteConfirm, {
+                          name: material.title || material.id,
+                        })}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -524,8 +546,10 @@ export const MaterialsPage: React.FC = () => {
                     )}
 
                     <div className="materials-v2-card-meta">
-                      <span>{formatDate(material.created_at)}</span>
-                      {material.source_url && <span>来源：{material.source_url}</span>}
+                      <span>{formatDate(material.created_at, locale)}</span>
+                      {material.source_url && (
+                        <span>{tf(materialsText.sourcePrefix, { url: material.source_url })}</span>
+                      )}
                     </div>
                   </article>
                 );
@@ -547,7 +571,7 @@ export const MaterialsPage: React.FC = () => {
       {showModal && (
         <div className="materials-v2-modal-mask" onClick={closeModal}>
           <div className="materials-v2-modal" onClick={(event) => event.stopPropagation()}>
-            <h3>新增素材</h3>
+            <h3>{materialsText.addMaterial}</h3>
             <div className="materials-v2-mode-switch">
               <button
                 type="button"
@@ -557,7 +581,7 @@ export const MaterialsPage: React.FC = () => {
                   setSubmitError("");
                 }}
               >
-                文本模式
+                {tx("文本模式", "Text Mode")}
               </button>
               <button
                 type="button"
@@ -567,72 +591,72 @@ export const MaterialsPage: React.FC = () => {
                   setSubmitError("");
                 }}
               >
-                链接模式
+                {tx("链接模式", "Link Mode")}
               </button>
             </div>
             <label>
-              标题（可选）
+              {tx("标题（可选）", "Title (Optional)")}
               <input
                 value={newTitle}
                 onChange={(event) => setNewTitle(event.target.value)}
-                placeholder="不填则自动从链接或正文推断"
+                placeholder={materialsText.titlePlaceholder}
               />
             </label>
 
             {inputMode === "text" && (
               <label>
-                素材内容
+                {tx("素材内容", "Material Content")}
                 <textarea
                   value={newContent}
                   onChange={(event) => setNewContent(event.target.value)}
-                  placeholder="输入素材正文，用于 RAG 检索与改写增强。"
+                  placeholder={materialsText.contentPlaceholder}
                 />
               </label>
             )}
 
             <label>
-              {inputMode === "link" ? "文章链接" : "来源（可选）"}
+              {inputMode === "link" ? materialsText.sourceLink : materialsText.optionalSource}
               <input
                 value={newSource}
                 onChange={(event) => setNewSource(event.target.value)}
                 placeholder={
                   inputMode === "link"
-                    ? "粘贴公众号 / Twitter(X) / 其他网页链接"
-                    : "例如：网页 URL / 文件名 / 访谈来源"
+                    ? materialsText.sourcePlaceholderLink
+                    : materialsText.sourcePlaceholderOptional
                 }
               />
             </label>
             {detectedPlatform !== "none" && (
               <div className={`materials-v2-platform-hint ${detectedPlatform}`}>
-                {detectedPlatform === "wechat" && "已识别为微信公众号链接，保存时将自动抓取正文。"}
-                {detectedPlatform === "twitter" && "已识别为 Twitter/X 链接，保存时将尝试抓取推文正文。"}
-                {detectedPlatform === "generic" && "已识别为网页链接，保存时将使用通用规则提取正文。"}
-                {detectedPlatform === "invalid" && "链接格式不正确，请输入完整 http(s) URL。"}
+                {detectedPlatform === "wechat" && materialsText.sourceLinkHintWechat}
+                {detectedPlatform === "twitter" && materialsText.sourceLinkHintTwitter}
+                {detectedPlatform === "generic" && materialsText.sourceLinkHintGeneric}
+                {detectedPlatform === "invalid" && materialsText.sourceLinkHintInvalid}
               </div>
             )}
             {inputMode === "link" && (
               <label>
-                手动正文（可选，抓取失败时建议填写）
+                {tx("手动正文（可选，抓取失败时建议填写）", "Manual Content (Optional)")}
                 <textarea
                   value={newContent}
                   onChange={(event) => setNewContent(event.target.value)}
-                  placeholder="可留空。若链接抓取失败，可手动粘贴正文后再提交。"
+                  placeholder={materialsText.optionalContentPlaceholder}
                 />
               </label>
             )}
             <label>
-              标签（可选）
+              {tx("标签（可选）", "Tags (Optional)")}
               <input
                 value={newTags}
                 onChange={(event) => setNewTags(event.target.value)}
-                placeholder="用逗号分隔多个标签，如：产品,案例,金句"
+                placeholder={materialsText.tagsPlaceholder}
               />
             </label>
             {submitError && <div className="materials-v2-submit-error">{submitError}</div>}
 
             <div className="materials-v2-modal-actions">
               <button type="button" className="ghost" onClick={closeModal} disabled={isSubmitting}>
-                取消
+                {tx("取消", "Cancel")}
               </button>
               <button
                 type="button"
@@ -644,7 +668,7 @@ export const MaterialsPage: React.FC = () => {
                   (inputMode === "link" && !newSource.trim())
                 }
               >
-                {isSubmitting ? "保存中..." : "保存素材"}
+                {isSubmitting ? materialsText.saving : materialsText.saveMaterial}
               </button>
             </div>
           </div>
@@ -657,25 +681,25 @@ export const MaterialsPage: React.FC = () => {
             className="materials-v2-modal materials-v2-modal-detail"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3>编辑素材 #{editingMaterial.id}</h3>
+            <h3>{tx("编辑素材", "Edit Material")} #{editingMaterial.id}</h3>
             <label>
-              标题
+              {tx("标题", "Title")}
               <input
                 value={editTitle}
                 onChange={(event) => setEditTitle(event.target.value)}
-                placeholder="素材标题"
+                placeholder={materialsText.editTitlePlaceholder}
               />
             </label>
             <label>
-              素材正文
+              {tx("素材正文", "Content")}
               <textarea
                 value={editContent}
                 onChange={(event) => setEditContent(event.target.value)}
-                placeholder="可编辑完整素材正文"
+                placeholder={materialsText.editContentPlaceholder}
               />
             </label>
             <label>
-              来源链接（可选）
+              {tx("来源链接（可选）", "Source URL (Optional)")}
               <input
                 value={editSource}
                 onChange={(event) => setEditSource(event.target.value)}
@@ -684,25 +708,34 @@ export const MaterialsPage: React.FC = () => {
             </label>
             {detectedEditPlatform !== "none" && (
               <div className={`materials-v2-platform-hint ${detectedEditPlatform}`}>
-                {detectedEditPlatform === "wechat" && "已识别为微信公众号链接，保存时可自动抓取正文。"}
-                {detectedEditPlatform === "twitter" && "已识别为 Twitter/X 链接，保存时可尝试抓取推文正文。"}
-                {detectedEditPlatform === "generic" && "已识别为网页链接，保存时将按通用规则提取正文。"}
-                {detectedEditPlatform === "invalid" && "链接格式不正确，请输入完整 http(s) URL。"}
+                {detectedEditPlatform === "wechat" && tx(
+                  "已识别为微信公众号链接，保存时可自动抓取正文。",
+                  "WeChat link detected. Content can be auto-fetched on save.",
+                )}
+                {detectedEditPlatform === "twitter" && tx(
+                  "已识别为 Twitter/X 链接，保存时可尝试抓取推文正文。",
+                  "Twitter/X link detected. Tweet text can be fetched on save.",
+                )}
+                {detectedEditPlatform === "generic" && tx(
+                  "已识别为网页链接，保存时将按通用规则提取正文。",
+                  "Web link detected. Generic extraction will run on save.",
+                )}
+                {detectedEditPlatform === "invalid" && materialsText.sourceLinkHintInvalid}
               </div>
             )}
             <label>
-              标签（可选）
+              {tx("标签（可选）", "Tags (Optional)")}
               <input
                 value={editTags}
                 onChange={(event) => setEditTags(event.target.value)}
-                placeholder="用逗号分隔多个标签"
+                placeholder={materialsText.editTagsPlaceholder}
               />
             </label>
             {editError && <div className="materials-v2-submit-error">{editError}</div>}
 
             <div className="materials-v2-modal-actions">
               <button type="button" className="ghost" onClick={closeEditModal} disabled={isUpdating}>
-                取消
+                {tx("取消", "Cancel")}
               </button>
               <button
                 type="button"
@@ -710,7 +743,7 @@ export const MaterialsPage: React.FC = () => {
                 onClick={() => void handleUpdateMaterial()}
                 disabled={isUpdating}
               >
-                {isUpdating ? "保存中..." : "保存修改"}
+                {isUpdating ? materialsText.saving : materialsText.saveChanges}
               </button>
             </div>
           </div>

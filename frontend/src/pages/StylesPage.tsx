@@ -18,6 +18,7 @@ import {
   updateStyle,
   type WritingStyle,
 } from "../services/api";
+import { formatMessage, useLanguage } from "../i18n";
 import "./StylesPage.css";
 
 interface StyleDescription {
@@ -58,19 +59,19 @@ interface StyleEditForm {
   paragraph_closing: string;
 }
 
-const STYLE_SECTION_CONFIG: Array<{ key: keyof StyleDescription; label: string }> = [
-  { key: "persona", label: "人设定位" },
-  { key: "thinking_pattern", label: "思维模式" },
-  { key: "opening_pattern", label: "开头模式" },
-  { key: "transition_pattern", label: "过渡模式" },
-  { key: "sentence_rhythm", label: "句子节奏" },
-  { key: "vocabulary", label: "用词特点" },
-  { key: "rhetorical_devices", label: "修辞手法" },
-  { key: "ending_pattern", label: "结尾模式" },
-  { key: "format_layout", label: "格式布局" },
-  { key: "signature_moves", label: "标志性手法" },
-  { key: "anti_ai_features", label: "反 AI 特征" },
-  { key: "overall_summary", label: "整体总结" },
+const STYLE_SECTION_KEYS: Array<keyof StyleDescription> = [
+  "persona",
+  "thinking_pattern",
+  "opening_pattern",
+  "transition_pattern",
+  "sentence_rhythm",
+  "vocabulary",
+  "rhetorical_devices",
+  "ending_pattern",
+  "format_layout",
+  "signature_moves",
+  "anti_ai_features",
+  "overall_summary",
 ];
 
 const createEmptyEditForm = (): StyleEditForm => ({
@@ -95,12 +96,12 @@ const createEmptyEditForm = (): StyleEditForm => ({
   paragraph_closing: "",
 });
 
-const formatTime = (value: string) => {
+const formatTime = (value: string, locale = "zh-CN") => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "--";
   }
-  return date.toLocaleString("zh-CN", {
+  return date.toLocaleString(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -186,7 +187,7 @@ const editFormToStyleDescription = (form: StyleEditForm): string => {
   return JSON.stringify(payload, null, 2);
 };
 
-const getStyleSummary = (style: WritingStyle) => {
+const getStyleSummary = (style: WritingStyle, noSummaryLabel: string) => {
   const parsed = parseStyleDescription(style.style_description);
   if (parsed?.overall_summary) {
     return summarize(parsed.overall_summary, 70);
@@ -200,10 +201,31 @@ const getStyleSummary = (style: WritingStyle) => {
   if (style.language_characteristics) {
     return summarize(style.language_characteristics, 70);
   }
-  return "暂无摘要";
+  return noSummaryLabel;
 };
 
 export const StylesPage: React.FC = () => {
+  const { lang, text } = useLanguage();
+  const stylesText = text.styles;
+  const locale = lang === "zh" ? "zh-CN" : "en-US";
+  const tx = (zh: string, en: string) => (lang === "zh" ? zh : en);
+  const tf = (template: string, vars: Record<string, string | number>) =>
+    formatMessage(template, vars);
+  const sectionLabelMap: Record<keyof StyleDescription, string> = {
+    persona: tx("人设定位", "Persona"),
+    thinking_pattern: tx("思维模式", "Thinking Pattern"),
+    opening_pattern: tx("开头模式", "Opening Pattern"),
+    transition_pattern: tx("过渡模式", "Transition Pattern"),
+    sentence_rhythm: tx("句子节奏", "Sentence Rhythm"),
+    vocabulary: tx("用词特点", "Vocabulary"),
+    rhetorical_devices: tx("修辞手法", "Rhetorical Devices"),
+    ending_pattern: tx("结尾模式", "Ending Pattern"),
+    format_layout: tx("格式布局", "Format & Layout"),
+    signature_moves: tx("标志性手法", "Signature Moves"),
+    anti_ai_features: tx("反 AI 特征", "Anti-AI Features"),
+    overall_summary: tx("整体总结", "Overall Summary"),
+    paragraph_templates: tx("段落模板", "Paragraph Templates"),
+  };
   const [styles, setStyles] = useState<WritingStyle[]>([]);
   const [selectedStyleId, setSelectedStyleId] = useState<number | null>(null);
 
@@ -312,7 +334,7 @@ export const StylesPage: React.FC = () => {
     }
 
     setIsExtracting(true);
-    setExtractStatus("正在启动风格分析...");
+    setExtractStatus(tx("正在启动风格分析...", "Starting style analysis..."));
     setExtractPreview("");
 
     try {
@@ -324,10 +346,10 @@ export const StylesPage: React.FC = () => {
         {
           onStart: (data) => {
             const count = Number(data.articles_count || articles.length);
-            setExtractStatus(`已接收 ${count} 篇参考文章，开始分析...`);
+            setExtractStatus(tf(stylesText.receivedArticles, { count }));
           },
           onProgress: (data) => {
-            setExtractStatus(String(data.message || "正在提炼写作特征..."));
+            setExtractStatus(String(data.message || stylesText.extractingFallback));
           },
           onChunk: (delta) => {
             setExtractPreview((prev) => (prev + delta).slice(-4500));
@@ -343,7 +365,7 @@ export const StylesPage: React.FC = () => {
       setExtractPreview("");
     } catch (error) {
       console.error("提取风格失败:", error);
-      setExtractStatus(error instanceof Error ? error.message : "提取失败");
+      setExtractStatus(error instanceof Error ? error.message : stylesText.extractFailed);
     } finally {
       setIsExtracting(false);
     }
@@ -376,7 +398,7 @@ export const StylesPage: React.FC = () => {
     }
 
     if (!editForm.name.trim()) {
-      setEditError("风格名称不能为空");
+      setEditError(stylesText.editNameRequired);
       return;
     }
 
@@ -395,14 +417,16 @@ export const StylesPage: React.FC = () => {
       setShowEditModal(false);
     } catch (error) {
       console.error("更新风格失败:", error);
-      setEditError(error instanceof Error ? error.message : "更新失败，请重试");
+      setEditError(error instanceof Error ? error.message : stylesText.updateFailed);
     } finally {
       setIsSavingEdit(false);
     }
   };
 
   const handleDelete = async (style: WritingStyle) => {
-    const confirmed = window.confirm(`确定删除风格“${style.name}”吗？`);
+    const confirmed = window.confirm(
+      tf(stylesText.deleteConfirm, { name: style.name }),
+    );
     if (!confirmed) {
       return;
     }
@@ -476,18 +500,18 @@ export const StylesPage: React.FC = () => {
         <aside className="styles-v2-sidebar">
           <div className="styles-v2-sidebar-head">
             <div>
-              <h1>我的风格</h1>
-              <p>管理并复用写作风格 DNA</p>
+              <h1>{stylesText.title}</h1>
+              <p>{stylesText.subtitle}</p>
             </div>
             <button type="button" className="styles-v2-create-btn" onClick={openCreateModal}>
               <Plus size={14} />
-              创建新风格
+              {stylesText.createStyle}
             </button>
           </div>
 
           <div className="styles-v2-list">
             {styles.length === 0 ? (
-              <div className="styles-v2-empty">暂无风格，点击上方按钮创建。</div>
+              <div className="styles-v2-empty">{stylesText.noStyles}</div>
             ) : (
               styles.map((style) => (
                 <article
@@ -497,9 +521,9 @@ export const StylesPage: React.FC = () => {
                 >
                   <div className="styles-v2-item-header">
                     <h3>{style.name}</h3>
-                    <span>{formatTime(style.created_at)}</span>
+                    <span>{formatTime(style.created_at, locale)}</span>
                   </div>
-                  <p>{getStyleSummary(style)}</p>
+                  <p>{getStyleSummary(style, stylesText.noSummary)}</p>
                   <div className="styles-v2-item-actions">
                     <button
                       type="button"
@@ -508,7 +532,7 @@ export const StylesPage: React.FC = () => {
                         setSelectedStyleId(style.id);
                       }}
                     >
-                      <Eye size={13} /> 查看
+                      <Eye size={13} /> {tx("查看", "View")}
                     </button>
                     <button
                       type="button"
@@ -517,7 +541,7 @@ export const StylesPage: React.FC = () => {
                         openEditModal(style);
                       }}
                     >
-                      <Pencil size={13} /> 编辑
+                      <Pencil size={13} /> {tx("编辑", "Edit")}
                     </button>
                     <button
                       type="button"
@@ -526,7 +550,7 @@ export const StylesPage: React.FC = () => {
                         void handleDelete(style);
                       }}
                     >
-                      <Trash2 size={13} /> 删除
+                      <Trash2 size={13} /> {tx("删除", "Delete")}
                     </button>
                   </div>
                 </article>
@@ -542,9 +566,12 @@ export const StylesPage: React.FC = () => {
                 <div>
                   <h2>{selectedStyle.name}</h2>
                   <p>
-                    创建于 {new Date(selectedStyle.created_at).toLocaleString("zh-CN")}
+                    {tx("创建于", "Created at")}{" "}
+                    {new Date(selectedStyle.created_at).toLocaleString(locale)}
                     {selectedStyle.updated_at
-                      ? ` · 更新于 ${new Date(selectedStyle.updated_at).toLocaleString("zh-CN")}`
+                      ? tf(stylesText.updatedAt, {
+                          time: new Date(selectedStyle.updated_at).toLocaleString(locale),
+                        })
                       : ""}
                   </p>
                 </div>
@@ -552,7 +579,7 @@ export const StylesPage: React.FC = () => {
                   <div className="styles-v2-detail-tags">
                     <span>
                       <Sparkles size={12} />
-                      可用于改写
+                      {tx("可用于改写", "Ready for Rewrite")}
                     </span>
                   </div>
                   <button
@@ -560,7 +587,7 @@ export const StylesPage: React.FC = () => {
                     className="styles-v2-secondary-btn"
                     onClick={() => openEditModal(selectedStyle)}
                   >
-                    <Pencil size={13} /> 编辑风格
+                    <Pencil size={13} /> {tx("编辑风格", "Edit Style")}
                   </button>
                 </div>
               </div>
@@ -568,25 +595,25 @@ export const StylesPage: React.FC = () => {
               <div className="styles-v2-detail-meta-grid">
                 {selectedStyle.tone && (
                   <div>
-                    <label>语气</label>
+                    <label>{tx("语气", "Tone")}</label>
                     <p>{selectedStyle.tone}</p>
                   </div>
                 )}
                 {selectedStyle.article_type && (
                   <div>
-                    <label>文章类型</label>
+                    <label>{tx("文章类型", "Article Type")}</label>
                     <p>{selectedStyle.article_type}</p>
                   </div>
                 )}
                 {selectedStyle.target_audience && (
                   <div>
-                    <label>目标读者</label>
+                    <label>{tx("目标读者", "Target Audience")}</label>
                     <p>{selectedStyle.target_audience}</p>
                   </div>
                 )}
                 {selectedStyle.language_characteristics && (
                   <div>
-                    <label>语言特点</label>
+                    <label>{tx("语言特点", "Language Traits")}</label>
                     <p>{selectedStyle.language_characteristics}</p>
                   </div>
                 )}
@@ -594,11 +621,11 @@ export const StylesPage: React.FC = () => {
 
               {parsedDescription ? (
                 <div className="styles-v2-detail-sections">
-                  {STYLE_SECTION_CONFIG.map((section) =>
+                  {STYLE_SECTION_KEYS.map((section) =>
                     renderDescriptionSection(
-                      section.label,
-                      section.key,
-                      parsedDescription[section.key] as string | string[] | undefined,
+                      sectionLabelMap[section],
+                      section,
+                      parsedDescription[section] as string | string[] | undefined,
                     ),
                   )}
 
@@ -610,7 +637,7 @@ export const StylesPage: React.FC = () => {
                           className="styles-v2-detail-toggle"
                           onClick={() => toggleSection("paragraph_templates")}
                         >
-                          <span>段落模板</span>
+                          <span>{sectionLabelMap.paragraph_templates}</span>
                           {expandedSections.has("paragraph_templates") ? (
                             <ChevronDown size={14} />
                           ) : (
@@ -624,7 +651,7 @@ export const StylesPage: React.FC = () => {
                                 .filter(([, value]) => Boolean(value))
                                 .map(([key, value]) => (
                                   <li key={key}>
-                                    <strong>{key}：</strong>
+                                    <strong>{key}:</strong>
                                     {value}
                                   </li>
                                 ))}
@@ -635,19 +662,21 @@ export const StylesPage: React.FC = () => {
                     )}
                 </div>
               ) : (
-                <div className="styles-v2-empty">暂无结构化风格详情。</div>
+                <div className="styles-v2-empty">
+                  {tx("暂无结构化风格详情。", "No structured style details yet.")}
+                </div>
               )}
 
               {(selectedStyle.example_text || selectedStyle.sample_content) && (
                 <div className="styles-v2-sample-block">
-                  <h3>示例内容</h3>
+                  <h3>{tx("示例内容", "Sample Content")}</h3>
                   <pre>{selectedStyle.example_text || selectedStyle.sample_content}</pre>
                 </div>
               )}
             </>
           ) : (
             <div className="styles-v2-empty styles-v2-detail-empty">
-              请选择一个风格查看详情
+              {tx("请选择一个风格查看详情", "Select a style to view details")}
             </div>
           )}
         </section>
@@ -656,13 +685,13 @@ export const StylesPage: React.FC = () => {
       {showCreateModal && (
         <div className="styles-v2-modal-mask" onClick={closeCreateModal}>
           <div className="styles-v2-modal" onClick={(event) => event.stopPropagation()}>
-            <h3>提炼新风格</h3>
+            <h3>{stylesText.createModalTitle}</h3>
             <label>
-              风格名称
+              {stylesText.styleName}
               <input
                 value={newStyleName}
                 onChange={(event) => setNewStyleName(event.target.value)}
-                placeholder="例如：简洁洞察、故事型口播、技术报告"
+                placeholder={stylesText.styleNamePlaceholder}
               />
             </label>
 
@@ -670,7 +699,7 @@ export const StylesPage: React.FC = () => {
               {newStyleArticles.map((article, index) => (
                 <div key={`article-${index}`} className="styles-v2-article-item">
                   <div className="styles-v2-article-head">
-                    <span>参考文章 {index + 1}</span>
+                    <span>{stylesText.referenceArticle} {index + 1}</span>
                     <div>
                       <button
                         type="button"
@@ -691,7 +720,7 @@ export const StylesPage: React.FC = () => {
                   <textarea
                     value={article}
                     onChange={(event) => updateArticle(index, event.target.value)}
-                    placeholder="粘贴该风格的代表文章..."
+                    placeholder={stylesText.articlePlaceholder}
                   />
                 </div>
               ))}
@@ -701,7 +730,7 @@ export const StylesPage: React.FC = () => {
               <div className="styles-v2-stream-box">
                 <div className="styles-v2-stream-status">
                   {isExtracting && <Loader2 size={14} className="spin" />}
-                  <span>{extractStatus || "准备中..."}</span>
+                  <span>{extractStatus || stylesText.extractStatusReady}</span>
                 </div>
                 {extractPreview && <pre>{extractPreview}</pre>}
               </div>
@@ -709,7 +738,7 @@ export const StylesPage: React.FC = () => {
 
             <div className="styles-v2-modal-actions">
               <button type="button" className="ghost" onClick={closeCreateModal} disabled={isExtracting}>
-                取消
+                {tx("取消", "Cancel")}
               </button>
               <button
                 type="button"
@@ -721,7 +750,7 @@ export const StylesPage: React.FC = () => {
                   newStyleArticles.every((article) => !article.trim())
                 }
               >
-                {isExtracting ? "提炼中..." : "开始提炼"}
+                {isExtracting ? stylesText.extracting : stylesText.startExtract}
               </button>
             </div>
           </div>
@@ -731,116 +760,118 @@ export const StylesPage: React.FC = () => {
       {showEditModal && (
         <div className="styles-v2-modal-mask" onClick={closeEditModal}>
           <div className="styles-v2-modal styles-v2-edit-modal" onClick={(event) => event.stopPropagation()}>
-            <h3>编辑风格</h3>
+            <h3>{stylesText.editTitle}</h3>
 
             <div className="styles-v2-edit-grid">
               <label className="styles-v2-edit-field">
-                风格名称
+                {stylesText.styleName}
                 <input
                   value={editForm.name}
                   onChange={(event) => updateEditField("name", event.target.value)}
-                  placeholder="请输入风格名称"
+                  placeholder={tx("请输入风格名称", "Enter style name")}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                标签
+                {tx("标签", "Tags")}
                 <input
                   value={editForm.tags}
                   onChange={(event) => updateEditField("tags", event.target.value)}
-                  placeholder="例如：技术,口语化,故事感"
+                  placeholder={stylesText.tagsPlaceholder}
                 />
               </label>
               <label className="styles-v2-edit-field styles-v2-edit-field-wide">
-                示例文本
+                {tx("示例文本", "Sample Text")}
                 <textarea
                   value={editForm.example_text}
                   onChange={(event) => updateEditField("example_text", event.target.value)}
-                  placeholder="可选：用于补充风格样本"
+                  placeholder={stylesText.samplePlaceholder}
                 />
               </label>
             </div>
 
-            <h4 className="styles-v2-edit-section-title">十二维风格字段</h4>
+            <h4 className="styles-v2-edit-section-title">
+              {tx("十二维风格字段", "12-Dimension Style Fields")}
+            </h4>
             <div className="styles-v2-edit-grid">
               <label className="styles-v2-edit-field">
-                人设定位
+                {sectionLabelMap.persona}
                 <textarea
                   value={editForm.persona}
                   onChange={(event) => updateEditField("persona", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                思维模式
+                {sectionLabelMap.thinking_pattern}
                 <textarea
                   value={editForm.thinking_pattern}
                   onChange={(event) => updateEditField("thinking_pattern", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                开头模式
+                {sectionLabelMap.opening_pattern}
                 <textarea
                   value={editForm.opening_pattern}
                   onChange={(event) => updateEditField("opening_pattern", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                过渡模式
+                {sectionLabelMap.transition_pattern}
                 <textarea
                   value={editForm.transition_pattern}
                   onChange={(event) => updateEditField("transition_pattern", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                句子节奏
+                {sectionLabelMap.sentence_rhythm}
                 <textarea
                   value={editForm.sentence_rhythm}
                   onChange={(event) => updateEditField("sentence_rhythm", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                用词特点
+                {sectionLabelMap.vocabulary}
                 <textarea
                   value={editForm.vocabulary}
                   onChange={(event) => updateEditField("vocabulary", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                修辞手法
+                {sectionLabelMap.rhetorical_devices}
                 <textarea
                   value={editForm.rhetorical_devices}
                   onChange={(event) => updateEditField("rhetorical_devices", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                结尾模式
+                {sectionLabelMap.ending_pattern}
                 <textarea
                   value={editForm.ending_pattern}
                   onChange={(event) => updateEditField("ending_pattern", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                格式布局
+                {sectionLabelMap.format_layout}
                 <textarea
                   value={editForm.format_layout}
                   onChange={(event) => updateEditField("format_layout", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                标志性手法（每行一条）
+                {tx("标志性手法（每行一条）", "Signature Moves (one per line)")}
                 <textarea
                   value={editForm.signature_moves}
                   onChange={(event) => updateEditField("signature_moves", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                反 AI 特征
+                {sectionLabelMap.anti_ai_features}
                 <textarea
                   value={editForm.anti_ai_features}
                   onChange={(event) => updateEditField("anti_ai_features", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                整体总结
+                {sectionLabelMap.overall_summary}
                 <textarea
                   value={editForm.overall_summary}
                   onChange={(event) => updateEditField("overall_summary", event.target.value)}
@@ -848,31 +879,31 @@ export const StylesPage: React.FC = () => {
               </label>
             </div>
 
-            <h4 className="styles-v2-edit-section-title">段落模板</h4>
+            <h4 className="styles-v2-edit-section-title">{sectionLabelMap.paragraph_templates}</h4>
             <div className="styles-v2-edit-grid">
               <label className="styles-v2-edit-field">
-                观点段
+                {tx("观点段", "Viewpoint Paragraph")}
                 <textarea
                   value={editForm.paragraph_viewpoint}
                   onChange={(event) => updateEditField("paragraph_viewpoint", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                举例段
+                {tx("举例段", "Example Paragraph")}
                 <textarea
                   value={editForm.paragraph_example}
                   onChange={(event) => updateEditField("paragraph_example", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                转折段
+                {tx("转折段", "Transition Paragraph")}
                 <textarea
                   value={editForm.paragraph_transition}
                   onChange={(event) => updateEditField("paragraph_transition", event.target.value)}
                 />
               </label>
               <label className="styles-v2-edit-field">
-                收尾段
+                {tx("收尾段", "Closing Paragraph")}
                 <textarea
                   value={editForm.paragraph_closing}
                   onChange={(event) => updateEditField("paragraph_closing", event.target.value)}
@@ -884,7 +915,7 @@ export const StylesPage: React.FC = () => {
 
             <div className="styles-v2-modal-actions">
               <button type="button" className="ghost" onClick={closeEditModal} disabled={isSavingEdit}>
-                取消
+                {tx("取消", "Cancel")}
               </button>
               <button
                 type="button"
@@ -894,10 +925,10 @@ export const StylesPage: React.FC = () => {
               >
                 {isSavingEdit ? (
                   <>
-                    <Loader2 size={14} className="spin" /> 保存中...
+                    <Loader2 size={14} className="spin" /> {stylesText.saveLoading}
                   </>
                 ) : (
-                  "保存风格"
+                  stylesText.saveStyle
                 )}
               </button>
             </div>

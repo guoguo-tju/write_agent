@@ -42,6 +42,36 @@
   gap: 18px;
 }
 
+.app-top-nav-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.app-top-nav-lang {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #2d4b3e;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #101b17;
+}
+
+.app-top-nav-lang button {
+  border: 0;
+  background: transparent;
+  color: #8ca398;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.app-top-nav-lang button.active {
+  background: #f0d798;
+  color: #16221d;
+}
+
 .app-top-nav-item {
   color: #8ca398;
   font-size: 15px;
@@ -72,7 +102,7 @@
   }
 
   .app-top-nav-links {
-    width: 100%;
+    width: calc(100% - 88px);
     overflow-x: auto;
     padding-bottom: 2px;
   }
@@ -80,5 +110,14 @@
   .app-top-nav-item {
     white-space: nowrap;
     font-size: 14px;
+  }
+
+  .app-top-nav-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .app-top-nav-lang {
+    flex-shrink: 0;
   }
 }

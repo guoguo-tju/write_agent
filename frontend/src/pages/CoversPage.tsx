@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { AppTopNav } from "../components";
+import { formatMessage, useLanguage } from "../i18n";
 import {
   coverWithStream,
   createCoverStyle,
@@ -39,16 +40,6 @@ const ratioOptions = [
 ] as const;
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const NORMALIZED_API_BASE_URL = API_BASE_URL.replace(/\/+$/, "");
-
-const stageLabel: Partial<Record<SSEMessage["type"], string>> = {
-  start: "准备生成...",
-  progress: "处理中...",
-  prompt: "正在构建提示词...",
-  prompt_done: "提示词已生成",
-  generating: "图像生成中...",
-  saving: "保存结果中...",
-  done: "生成完成",
-};
 
 const summarize = (value: string, maxLength = 40) => {
   const normalized = value.replace(/\s+/g, " ").trim();
@@ -83,6 +74,20 @@ const resolveImageUrl = (imageUrl?: string | null): string => {
 };
 
 export const CoversPage: React.FC = () => {
+  const { lang, text } = useLanguage();
+  const coversText = text.covers;
+  const tx = (zh: string, en: string) => (lang === "zh" ? zh : en);
+  const tf = (template: string, vars: Record<string, string | number>) =>
+    formatMessage(template, vars);
+  const stageLabel: Partial<Record<SSEMessage["type"], string>> = {
+    start: coversText.stageStart,
+    progress: coversText.stageProgress,
+    prompt: coversText.stagePrompt,
+    prompt_done: coversText.stagePromptDone,
+    generating: coversText.stageGenerating,
+    saving: coversText.stageSaving,
+    done: coversText.stageDone,
+  };
   const [searchParams, setSearchParams] = useSearchParams();
   const rewriteIdFromQuery = parseRewriteId(searchParams.get("rewrite_id"));
   const [rewrites, setRewrites] = useState<RewriteRecord[]>([]);
@@ -100,7 +105,7 @@ export const CoversPage: React.FC = () => {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamStatus, setStreamStatus] = useState<StreamStatus>("idle");
-  const [streamMessage, setStreamMessage] = useState("等待生成");
+  const [streamMessage, setStreamMessage] = useState<string>(coversText.waiting);
 
   const [showStyleModal, setShowStyleModal] = useState(false);
   const [newStyleName, setNewStyleName] = useState("");
@@ -142,6 +147,12 @@ export const CoversPage: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (streamStatus === "idle") {
+      setStreamMessage(coversText.waiting);
+    }
+  }, [coversText.waiting, streamStatus]);
+
   const loadData = async () => {
     try {
       const [rewritesData, stylesData] = await Promise.all([
@@ -181,7 +192,7 @@ export const CoversPage: React.FC = () => {
     } catch (error) {
       console.error("加载封面页面数据失败:", error);
       setStreamStatus("error");
-      setStreamMessage("加载数据失败，请刷新后重试");
+      setStreamMessage(coversText.loadFailed);
     }
   };
 
@@ -203,17 +214,17 @@ export const CoversPage: React.FC = () => {
   const handleGenerateCover = () => {
     if (!selectedRewriteId) {
       setStreamStatus("error");
-      setStreamMessage("请先选择目标文章");
+      setStreamMessage(coversText.needArticle);
       return;
     }
     if (promptMode === "style" && !selectedStyleId) {
       setStreamStatus("error");
-      setStreamMessage("风格模式下请先选择一个封面风格");
+      setStreamMessage(coversText.needStyle);
       return;
     }
     if (promptMode === "custom" && !customPrompt.trim()) {
       setStreamStatus("error");
-      setStreamMessage("自定义模式下请输入提示词");
+      setStreamMessage(coversText.needPrompt);
       return;
     }
 
@@ -232,7 +243,7 @@ export const CoversPage: React.FC = () => {
 
     setIsGenerating(true);
     setStreamStatus("running");
-    setStreamMessage("正在启动生成任务...");
+    setStreamMessage(coversText.startTask);
 
     eventSourceRef.current = coverWithStream(
       request,
@@ -240,14 +251,14 @@ export const CoversPage: React.FC = () => {
         const message =
           String(event.message || "").trim() ||
           stageLabel[event.type] ||
-          "处理中...";
+          coversText.processing;
         setStreamStatus("running");
         setStreamMessage(message);
       },
       (errorMessage) => {
         setIsGenerating(false);
         setStreamStatus("error");
-        setStreamMessage(errorMessage || "封面生成失败");
+        setStreamMessage(errorMessage || coversText.generateFailed);
         closeCurrentStream();
       },
       async (event) => {
@@ -264,7 +275,7 @@ export const CoversPage: React.FC = () => {
 
           if (!cover) {
             setStreamStatus("error");
-            setStreamMessage("封面生成成功，但未读取到结果");
+            setStreamMessage(coversText.generatedNoResult);
             return;
           }
 
@@ -276,11 +287,11 @@ export const CoversPage: React.FC = () => {
           setSelectedRewriteId(cover.rewrite_id);
           syncRewriteQuery(cover.rewrite_id);
           setStreamStatus("success");
-          setStreamMessage("封面已生成");
+          setStreamMessage(coversText.generatedOk);
         } catch (error) {
           console.error("获取封面结果失败:", error);
           setStreamStatus("error");
-          setStreamMessage("封面生成完成，但读取结果失败");
+          setStreamMessage(coversText.generatedReadFailed);
         } finally {
           setIsGenerating(false);
           closeCurrentStream();
@@ -308,18 +319,20 @@ export const CoversPage: React.FC = () => {
       setNewStylePrompt("");
       setNewStyleDesc("");
       setStreamStatus("success");
-      setStreamMessage(`已创建风格：${created.name}`);
+      setStreamMessage(tf(coversText.styleCreated, { name: created.name }));
     } catch (error) {
       console.error("创建封面风格失败:", error);
       setStreamStatus("error");
-      setStreamMessage("创建封面风格失败，请重试");
+      setStreamMessage(coversText.styleCreateFailed);
     } finally {
       setIsCreatingStyle(false);
     }
   };
 
   const handleDeleteStyle = async (style: CoverStyle) => {
-    const confirmed = window.confirm(`确定删除风格“${style.name}”吗？`);
+    const confirmed = window.confirm(
+      tf(coversText.styleDeleteConfirm, { name: style.name }),
+    );
     if (!confirmed) {
       return;
     }
@@ -331,11 +344,11 @@ export const CoversPage: React.FC = () => {
         setSelectedStyleId(fallback?.id ?? null);
       }
       setStreamStatus("success");
-      setStreamMessage(`已删除风格：${style.name}`);
+      setStreamMessage(tf(coversText.styleDeleted, { name: style.name }));
     } catch (error) {
       console.error("删除封面风格失败:", error);
       setStreamStatus("error");
-      setStreamMessage("删除封面风格失败，请重试");
+      setStreamMessage(coversText.styleDeleteFailed);
     }
   };
 
@@ -367,12 +380,12 @@ export const CoversPage: React.FC = () => {
       <main className="covers-v2-main">
         <section className="covers-v2-config">
           <div className="covers-v2-title">
-            <h1>封面生成</h1>
-            <p>基于改写结果生成视觉封面，支持风格模板与自定义提示词。</p>
+            <h1>{coversText.pageTitle}</h1>
+            <p>{coversText.pageSubtitle}</p>
           </div>
 
           <div className="covers-v2-field">
-            <label>目标文章</label>
+            <label>{coversText.targetArticle}</label>
             <select
               value={selectedRewriteId || ""}
               onChange={(event) => {
@@ -383,7 +396,7 @@ export const CoversPage: React.FC = () => {
                 syncRewriteQuery(rewriteId);
               }}
             >
-              <option value="">请选择文章</option>
+              <option value="">{coversText.chooseArticle}</option>
               {rewrites.map((rewrite) => (
                 <option key={rewrite.id} value={rewrite.id}>
                   #{rewrite.id} - {summarize(rewrite.source_article)}
@@ -393,28 +406,28 @@ export const CoversPage: React.FC = () => {
           </div>
 
           <div className="covers-v2-field">
-            <label>生成模式</label>
+            <label>{coversText.modeLabel}</label>
             <div className="covers-v2-mode-grid">
               <button
                 className={promptMode === "auto" ? "active" : ""}
                 onClick={() => setPromptMode("auto")}
                 type="button"
               >
-                自动
+                {coversText.modeAuto}
               </button>
               <button
                 className={promptMode === "style" ? "active" : ""}
                 onClick={() => setPromptMode("style")}
                 type="button"
               >
-                风格匹配
+                {coversText.modeStyle}
               </button>
               <button
                 className={promptMode === "custom" ? "active" : ""}
                 onClick={() => setPromptMode("custom")}
                 type="button"
               >
-                自定义
+                {coversText.modeCustom}
               </button>
             </div>
           </div>
@@ -422,18 +435,18 @@ export const CoversPage: React.FC = () => {
           {promptMode === "style" && (
             <div className="covers-v2-field">
               <div className="covers-v2-inline-header">
-                <label>封面风格</label>
+                <label>{coversText.styleLabel}</label>
                 <button
                   className="ghost-btn"
                   onClick={() => setShowStyleModal(true)}
                   type="button"
                 >
                   <Plus size={14} />
-                  新建
+                  {tx("新建", "New")}
                 </button>
               </div>
               {coverStyles.length === 0 ? (
-                <div className="covers-v2-empty-tips">暂无风格，请先创建</div>
+                <div className="covers-v2-empty-tips">{tx("暂无风格，请先创建", "No styles yet. Create one first.")}</div>
               ) : (
                 <div className="covers-v2-style-tags">
                   {coverStyles.map((style) => (
@@ -454,17 +467,17 @@ export const CoversPage: React.FC = () => {
 
           {promptMode === "custom" && (
             <div className="covers-v2-field">
-              <label>自定义提示词</label>
+              <label>{coversText.customPrompt}</label>
               <textarea
                 value={customPrompt}
                 onChange={(event) => setCustomPrompt(event.target.value)}
-                placeholder="输入你希望的封面描述。建议包含：主题、场景、构图、风格、色调。"
+                placeholder={coversText.customPromptPlaceholder}
               />
             </div>
           )}
 
           <div className="covers-v2-field">
-            <label>尺寸比例</label>
+            <label>{coversText.ratioLabel}</label>
             <div className="covers-v2-ratio-grid">
               {ratioOptions.map((option) => (
                 <button
@@ -486,14 +499,14 @@ export const CoversPage: React.FC = () => {
             disabled={!canGenerate}
           >
             {isGenerating ? <Loader2 size={16} className="spin" /> : <ImageIcon size={16} />}
-            <span>{isGenerating ? "生成中..." : "研墨并生成"}</span>
+            <span>{isGenerating ? coversText.generateLoading : coversText.generate}</span>
           </button>
         </section>
 
         <section className="covers-v2-preview">
           <div className="covers-v2-preview-header">
             <div>
-              <h2>预览</h2>
+              <h2>{tx("预览", "Preview")}</h2>
             </div>
             <div className="covers-v2-actions">
               <button
@@ -501,28 +514,28 @@ export const CoversPage: React.FC = () => {
                 className="ghost-btn"
                 onClick={downloadCover}
                 disabled={!selectedCover?.image_url}
-                aria-label="下载封面图片"
+                aria-label={coversText.downloadImage}
               >
                 <Download size={14} />
-                下载
+                {tx("下载", "Download")}
               </button>
               <button
                 type="button"
                 className="ghost-btn"
                 onClick={handleGenerateCover}
                 disabled={!canGenerate}
-                aria-label="重新生成封面"
+                aria-label={coversText.regenerate}
               >
                 <RefreshCw size={14} />
-                重新生成
+                {coversText.regenerate}
               </button>
               <button
                 type="button"
                 className="ghost-btn"
                 disabled
-                title="后续会接入素材库存储能力"
+                title={coversText.saveMaterialSoon}
               >
-                保存至素材库
+                {tx("保存至素材库", "Save to Materials")}
               </button>
             </div>
           </div>
@@ -536,22 +549,22 @@ export const CoversPage: React.FC = () => {
 
           <div className="covers-v2-preview-canvas">
             {selectedCover?.image_url ? (
-              <img src={resolveImageUrl(selectedCover.image_url)} alt="封面预览图" />
+              <img src={resolveImageUrl(selectedCover.image_url)} alt={coversText.coverPreview} />
             ) : (
               <div className="covers-v2-preview-placeholder">
                 <ImageIcon size={40} />
-                <p>请选择文章并生成封面</p>
+                <p>{tx("请选择文章并生成封面", "Select an article and generate a cover")}</p>
               </div>
             )}
           </div>
 
           <div className="covers-v2-history">
             <div className="covers-v2-inline-header">
-              <h3>最近生成</h3>
-              <span>{orderedCoverHistory.length} 张</span>
+              <h3>{tx("最近生成", "Recent Covers")}</h3>
+              <span>{orderedCoverHistory.length} {tx("张", "items")}</span>
             </div>
             {orderedCoverHistory.length === 0 ? (
-              <div className="covers-v2-empty-tips">暂无封面历史</div>
+              <div className="covers-v2-empty-tips">{tx("暂无封面历史", "No cover history yet")}</div>
             ) : (
               <div className="covers-v2-history-list">
                 {orderedCoverHistory.map((cover) => (
@@ -563,12 +576,12 @@ export const CoversPage: React.FC = () => {
                       setSelectedRewriteId(cover.rewrite_id);
                       syncRewriteQuery(cover.rewrite_id);
                     }}
-                    title={`文章 #${cover.rewrite_id}`}
+                    title={tx(`文章 #${cover.rewrite_id}`, `Article #${cover.rewrite_id}`)}
                   >
                     {cover.image_url ? (
                       <img
                         src={resolveImageUrl(cover.image_url)}
-                        alt={`封面 #${cover.rewrite_id}`}
+                        alt={tx(`封面 #${cover.rewrite_id}`, `Cover #${cover.rewrite_id}`)}
                       />
                     ) : (
                       <div className="covers-v2-mini-placeholder">
@@ -588,7 +601,7 @@ export const CoversPage: React.FC = () => {
         <div className="covers-v2-inline-header">
           <h3>
             <Palette size={16} />
-            封面风格管理
+            {tx("封面风格管理", "Cover Style Management")}
           </h3>
           <button
             className="ghost-btn"
@@ -596,11 +609,13 @@ export const CoversPage: React.FC = () => {
             type="button"
           >
             <Plus size={14} />
-            新建风格
+            {tx("新建风格", "New Style")}
           </button>
         </div>
         {coverStyles.length === 0 ? (
-          <div className="covers-v2-empty-tips">暂无封面风格，点击右上角创建。</div>
+          <div className="covers-v2-empty-tips">
+            {tx("暂无封面风格，点击右上角创建。", "No cover styles yet. Click top-right to create one.")}
+          </div>
         ) : (
           <div className="covers-v2-style-grid">
             {coverStyles.map((style) => (
@@ -610,13 +625,13 @@ export const CoversPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleDeleteStyle(style)}
-                    aria-label={`删除风格：${style.name}`}
+                    aria-label={tx(`删除风格：${style.name}`, `Delete style: ${style.name}`)}
                     className="icon-btn"
                   >
                     <Trash2 size={14} />
                   </button>
                 </div>
-                <p>{style.description || "暂无描述"}</p>
+                <p>{style.description || coversText.noDescription}</p>
               </article>
             ))}
           </div>
@@ -634,31 +649,31 @@ export const CoversPage: React.FC = () => {
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="新建封面风格"
+            aria-label={coversText.createStyleAria}
           >
-            <h3>新建封面风格</h3>
+            <h3>{tx("新建封面风格", "Create Cover Style")}</h3>
             <label>
-              风格名称
+              {tx("风格名称", "Style Name")}
               <input
                 value={newStyleName}
                 onChange={(event) => setNewStyleName(event.target.value)}
-                placeholder="如：极简线条、手绘插画、水墨留白"
+                placeholder={coversText.styleNamePlaceholder}
               />
             </label>
             <label>
-              提示词模板
+              {tx("提示词模板", "Prompt Template")}
               <textarea
                 value={newStylePrompt}
                 onChange={(event) => setNewStylePrompt(event.target.value)}
-                placeholder="可使用 {title} 与 {content} 占位符。"
+                placeholder={coversText.stylePromptPlaceholder}
               />
             </label>
             <label>
-              描述（可选）
+              {tx("描述（可选）", "Description (Optional)")}
               <input
                 value={newStyleDesc}
                 onChange={(event) => setNewStyleDesc(event.target.value)}
-                placeholder="简要描述风格特点"
+                placeholder={coversText.styleDescPlaceholder}
               />
             </label>
             <div className="covers-v2-modal-actions">
@@ -667,7 +682,7 @@ export const CoversPage: React.FC = () => {
                 className="ghost-btn"
                 onClick={() => setShowStyleModal(false)}
               >
-                取消
+                {tx("取消", "Cancel")}
               </button>
               <button
                 type="button"
@@ -682,10 +697,10 @@ export const CoversPage: React.FC = () => {
                 {isCreatingStyle ? (
                   <>
                     <Loader2 size={14} className="spin" />
-                    创建中...
+                    {tx("创建中...", "Creating...")}
                   </>
                 ) : (
-                  "创建风格"
+                  coversText.createStyle
                 )}
               </button>
             </div>

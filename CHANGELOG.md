@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-03-12
+
+### Added
+- 前端新增轻量 i18n 基础层（无第三方库）：`LanguageProvider`、`useLanguage()`、`messages` 字典、`formatMessage` 模板插值，语言持久化键为 `write_agent_lang`。
+- 顶部导航新增全局 `CN / EN` 语言切换控件，默认中文，切换后全站即时生效并持久化。
+
+### Changed
+- 改写页目标长度档位细化为 `[100, 300, 500, 800, 1000, 1500, 2000]`，默认值从 `1000` 调整为 `500`，保持滑杆离散交互不变。
+- 前端 5 个页面与顶部导航完成静态文案双语化：`Home/Styles/Materials/Reviews/Covers`。
+- 公共分页组件完成双语化，英文模式下分页文案显示为 `Previous / Next / Page ...`。
+- `Input`/`Textarea` 组件的随机 id 生成改为 React `useId`，移除渲染期 `Math.random` 引发的 purity lint 错误。
+
+### Verification
+- `cd frontend && npm run build` 通过。
+- `cd frontend && npm run lint` 通过（仅剩历史 `react-hooks/exhaustive-deps` warning，无 error）。
+- 本地联调通过：`http://127.0.0.1:5173`（前端）+ `http://127.0.0.1:8000`（后端）健康可用。
+- SSE 改写实测通过：`GET /api/rewrites/stream`（`target_words=100`）完整返回 `start/progress/content/done` 并成功落库。
+- 浏览器自动化验收通过：默认中文、切英文、跨 5 页面文案切换、刷新保持语言、清空 `localStorage` 恢复中文。
+
 ## 2026-03-06
 
 ### Changed

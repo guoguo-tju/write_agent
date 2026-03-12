@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { AppTopNav, Button, Input, Pagination, Textarea } from "../components";
+import { formatMessage, useLanguage } from "../i18n";
 import {
   extractStyle,
   getMaterialsPage,
@@ -27,7 +28,7 @@ import {
 } from "../services/api";
 import "./HomePage.css";
 
-const TARGET_WORD_OPTIONS = [500, 800, 1000, 1500, 2000];
+const TARGET_WORD_OPTIONS = [100, 300, 500, 800, 1000, 1500, 2000];
 const RAG_TOP_K_OPTIONS = [1, 3, 5];
 const IMAGE_PLACEHOLDER_REGEX = /\[配图建议\|名称:[^\]]+\]/g;
 const HISTORY_PAGE_SIZE = 10;
@@ -35,9 +36,9 @@ const MATERIAL_PICKER_PAGE_SIZE = 10;
 
 type AutoReviewStatus = "idle" | "running" | "success" | "error";
 
-const formatTime = (value: string) => {
+const formatTime = (value: string, locale?: string) => {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "--" : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? "--" : date.toLocaleString(locale);
 };
 
 const summarize = (value: string, maxLength = 34) => {
@@ -59,7 +60,10 @@ const parseRewriteId = (value: string | null): number | null => {
   return parsed;
 };
 
-const parseRagRetrieved = (raw?: string): RagRetrievedItem[] => {
+const parseRagRetrieved = (
+  raw?: string,
+  unnamedMaterialLabel = "Untitled Material",
+): RagRetrievedItem[] => {
   if (!raw) {
     return [];
   }
@@ -75,7 +79,7 @@ const parseRagRetrieved = (raw?: string): RagRetrievedItem[] => {
         const record = item as Record<string, unknown>;
         return {
           material_id: Number(record.material_id || 0),
-          title: String(record.title || "未命名素材"),
+          title: String(record.title || unnamedMaterialLabel),
           source_url: record.source_url ? String(record.source_url) : undefined,
           tags: record.tags ? String(record.tags) : undefined,
           content: String(record.content || ""),
@@ -89,11 +93,16 @@ const parseRagRetrieved = (raw?: string): RagRetrievedItem[] => {
 };
 
 export const HomePage: React.FC = () => {
+  const { lang, text } = useLanguage();
+  const homeText = text.home;
+  const locale = lang === "zh" ? "zh-CN" : "en-US";
+  const t = (template: string, vars: Record<string, string | number> = {}) =>
+    formatMessage(template, vars);
   const [searchParams, setSearchParams] = useSearchParams();
   const rewriteIdFromQuery = parseRewriteId(searchParams.get("rewrite_id"));
   const [sourceContent, setSourceContent] = useState("");
   const [selectedStyleId, setSelectedStyleId] = useState<number | undefined>();
-  const [targetLength, setTargetLength] = useState<number>(1000);
+  const [targetLength, setTargetLength] = useState<number>(500);
   const [enableRag, setEnableRag] = useState(true);
   const [ragTopK, setRagTopK] = useState(3);
   const [styles, setStyles] = useState<WritingStyle[]>([]);
@@ -246,20 +255,29 @@ export const HomePage: React.FC = () => {
   const runAutoReview = async (rewriteId: number) => {
     setAutoReviewStatus("running");
     setAutoReviewRewriteId(rewriteId);
-    setAutoReviewMessage("主编审核中...");
+    setAutoReviewMessage(homeText.autoReviewRunning);
     try {
       const review = await startReview({ rewrite_id: rewriteId });
       const reviewPassed = review.result === "passed";
-      const score = review.total_score ? `，总分 ${review.total_score}` : "";
+      const scoreSuffix = review.total_score
+        ? t(homeText.scoreSuffix, { score: review.total_score })
+        : "";
       setAutoReviewStatus("success");
       setAutoReviewMessage(
-        `主编审核已完成：${reviewPassed ? "通过" : "未通过"}${score}。`,
+        t(
+          reviewPassed
+            ? homeText.autoReviewDonePass
+            : homeText.autoReviewDoneFail,
+          { scoreSuffix },
+        ),
       );
     } catch (error) {
       console.error("自动主编审核失败:", error);
       setAutoReviewStatus("error");
       setAutoReviewMessage(
-        error instanceof Error ? `主编审核失败：${error.message}` : "主编审核失败。",
+        error instanceof Error
+          ? `${homeText.autoReviewFailed} ${error.message}`
+          : homeText.autoReviewFailed,
       );
     }
   };
@@ -267,7 +285,9 @@ export const HomePage: React.FC = () => {
   const loadRagReferences = async (rewriteId: number) => {
     try {
       const rewrite = await getRewrite(rewriteId);
-      setRagReferences(parseRagRetrieved(rewrite.rag_retrieved));
+      setRagReferences(
+        parseRagRetrieved(rewrite.rag_retrieved, homeText.unnamedMaterial),
+      );
     } catch (error) {
       console.error("加载引用素材失败:", error);
       setRagReferences([]);
@@ -376,27 +396,27 @@ export const HomePage: React.FC = () => {
         <section className="home-v2-source">
           <div className="home-v2-panel-header">
             <div>
-              <h2>源文本</h2>
-              <span>支持手动粘贴或从素材库选择</span>
+              <h2>{homeText.sourceTitle}</h2>
+              <span>{homeText.sourceSubtitle}</span>
             </div>
             <div className="home-v2-source-actions">
               <button
                 type="button"
-                title="从素材库选择"
+                title={homeText.pickMaterial}
                 onClick={openMaterialPicker}
               >
                 <FolderOpen size={15} />
               </button>
               <button
                 type="button"
-                title="清空"
+                title={homeText.clear}
                 onClick={() => setSourceContent("")}
               >
                 <X size={15} />
               </button>
               <button
                 type="button"
-                title="粘贴"
+                title={homeText.paste}
                 onClick={async () => {
                   try {
                     const text = await navigator.clipboard.readText();
@@ -415,14 +435,14 @@ export const HomePage: React.FC = () => {
 
           <textarea
             className="home-v2-source-textarea"
-            placeholder="在此粘贴您的文本以开始改写..."
+            placeholder={homeText.sourcePlaceholder}
             value={sourceContent}
             onChange={(event) => setSourceContent(event.target.value)}
           />
 
           <div className="home-v2-compose-bar">
             <div className="home-v2-compose-group">
-              <label>写作风格</label>
+              <label>{homeText.styleLabel}</label>
               <div className="home-v2-inline-row">
                 <select
                   value={styleValue}
@@ -432,7 +452,7 @@ export const HomePage: React.FC = () => {
                     )
                   }
                 >
-                  <option value="">请选择风格</option>
+                  <option value="">{homeText.chooseStyle}</option>
                   {styles.map((style) => (
                     <option key={style.id} value={style.id}>
                       {style.name}
@@ -445,13 +465,13 @@ export const HomePage: React.FC = () => {
                   onClick={() => setShowNewStyle(true)}
                 >
                   <Plus size={13} />
-                  新建
+                  {homeText.newStyle}
                 </button>
               </div>
             </div>
 
             <div className="home-v2-compose-group">
-              <label>目标长度</label>
+              <label>{homeText.targetLength}</label>
               <div className="home-v2-inline-row">
                 <input
                   type="range"
@@ -463,12 +483,12 @@ export const HomePage: React.FC = () => {
                     setTargetLength(TARGET_WORD_OPTIONS[index]);
                   }}
                 />
-                <strong>约 {targetLength} 字</strong>
+                <strong>{t(homeText.targetWords, { count: targetLength })}</strong>
               </div>
             </div>
 
             <div className="home-v2-compose-group">
-              <label>RAG 检索增强</label>
+              <label>{homeText.ragBoost}</label>
               <div className="home-v2-rag-config">
                 <label className="home-v2-rag-toggle">
                   <input
@@ -476,7 +496,7 @@ export const HomePage: React.FC = () => {
                     checked={enableRag}
                     onChange={(event) => setEnableRag(event.target.checked)}
                   />
-                  <span>{enableRag ? "已启用" : "已关闭"}</span>
+                  <span>{enableRag ? homeText.ragEnabled : homeText.ragDisabled}</span>
                 </label>
                 <select
                   value={String(ragTopK)}
@@ -485,7 +505,7 @@ export const HomePage: React.FC = () => {
                 >
                   {RAG_TOP_K_OPTIONS.map((count) => (
                     <option key={count} value={count}>
-                      引用 {count} 条
+                      {t(homeText.ragReferenceCount, { count })}
                     </option>
                   ))}
                 </select>
@@ -499,7 +519,7 @@ export const HomePage: React.FC = () => {
                 loading={isLoading}
                 icon={<Send size={14} />}
               >
-                {isLoading ? "改写中..." : "开始改写"}
+                {isLoading ? homeText.rewriteLoading : homeText.startRewrite}
               </Button>
               {isLoading && (
                 <Button
@@ -507,32 +527,34 @@ export const HomePage: React.FC = () => {
                   onClick={cancelRewrite}
                   icon={<X size={14} />}
                 >
-                  取消
+                  {homeText.cancel}
                 </Button>
               )}
             </div>
           </div>
 
           <div className="home-v2-footnote">
-            <span>{countWords(sourceContent)} 字</span>
-            <span>目标：{targetLength} 字</span>
+            <span>{t(homeText.sourceWords, { count: countWords(sourceContent) })}</span>
+            <span>{t(homeText.targetWords, { count: targetLength })}</span>
           </div>
         </section>
 
         <section className="home-v2-output">
           <div className="home-v2-panel-header">
             <div>
-              <h2>砚雀输出 {isLoading ? "(研墨中...)" : ""}</h2>
-              {resultWordCount > 0 && <span>字数：{resultWordCount}</span>}
+              <h2>{homeText.outputTitle} {isLoading ? homeText.outputLoading : ""}</h2>
+              {resultWordCount > 0 && (
+                <span>{t(homeText.wordCount, { count: resultWordCount })}</span>
+              )}
             </div>
             <div className="home-v2-output-actions">
               <button type="button" onClick={handleCopy} disabled={!rewrittenContent}>
                 <Copy size={14} />
-                复制
+                {homeText.copy}
               </button>
               <button type="button" onClick={handleExport} disabled={!rewrittenContent}>
                 <Download size={14} />
-                导出
+                {homeText.export}
               </button>
             </div>
           </div>
@@ -541,7 +563,7 @@ export const HomePage: React.FC = () => {
             {isLoading && !rewrittenContent ? (
               <div className="home-v2-placeholder">
                 <Loader2 size={22} className="spin" />
-                <span>正在生成改写内容...</span>
+                <span>{homeText.generatingPlaceholder}</span>
               </div>
             ) : rewrittenContent ? (
               <div className="home-v2-result-text">
@@ -549,14 +571,14 @@ export const HomePage: React.FC = () => {
                 {isLoading && (
                   <span className="home-v2-streaming">
                     <Loader2 size={14} className="spin" />
-                    接收中...
+                    {homeText.receiving}
                   </span>
                 )}
               </div>
             ) : (
               <div className="home-v2-placeholder">
                 <Sparkles size={36} />
-                <span>改写结果将显示在这里</span>
+                <span>{homeText.resultPlaceholder}</span>
               </div>
             )}
           </div>
@@ -565,23 +587,29 @@ export const HomePage: React.FC = () => {
             <div className={`home-v2-review-status ${autoReviewStatus}`}>
               <span>{autoReviewMessage}</span>
               {autoReviewRewriteId && (
-                <a href={`/reviews?rewrite_id=${autoReviewRewriteId}`}>去审核页查看</a>
+                <a href={`/reviews?rewrite_id=${autoReviewRewriteId}`}>
+                  {homeText.goToReviewPage}
+                </a>
               )}
             </div>
           )}
 
           <section className="home-v2-rag-panel">
             <div className="home-v2-rag-panel-head">
-              <h3>本次引用素材</h3>
-              <span>{enableRag ? `Top ${ragTopK}` : "RAG 已关闭"}</span>
+              <h3>{homeText.ragMaterialsTitle}</h3>
+              <span>
+                {enableRag
+                  ? t(homeText.ragTop, { count: ragTopK })
+                  : homeText.ragClosed}
+              </span>
             </div>
 
             {isLoading ? (
-              <div className="home-v2-rag-empty">改写完成后展示本次引用素材。</div>
+              <div className="home-v2-rag-empty">{homeText.ragAfterRewrite}</div>
             ) : !enableRag ? (
-              <div className="home-v2-rag-empty">本次未启用 RAG 检索。</div>
+              <div className="home-v2-rag-empty">{homeText.ragNotEnabled}</div>
             ) : ragReferences.length === 0 ? (
-              <div className="home-v2-rag-empty">本次未命中素材。</div>
+              <div className="home-v2-rag-empty">{homeText.ragNoHit}</div>
             ) : (
               <div className="home-v2-rag-list">
                 {ragReferences.map((item) => (
@@ -590,15 +618,18 @@ export const HomePage: React.FC = () => {
                     className="home-v2-rag-item"
                   >
                     <div className="home-v2-rag-item-head">
-                      <strong>{item.title || `素材 #${item.material_id}`}</strong>
-                      <span>相似度 {(item.score * 100).toFixed(1)}%</span>
+                      <strong>
+                        {item.title ||
+                          t(homeText.materialFallback, { id: item.material_id })}
+                      </strong>
+                      <span>{homeText.similarity} {(item.score * 100).toFixed(1)}%</span>
                     </div>
                     <p>{summarize(item.content, 160)}</p>
                     <div className="home-v2-rag-item-meta">
-                      {item.tags && <span>标签：{item.tags}</span>}
+                      {item.tags && <span>{item.tags}</span>}
                       {item.source_url && (
                         <a href={item.source_url} target="_blank" rel="noreferrer">
-                          查看来源
+                          {homeText.viewSource}
                         </a>
                       )}
                     </div>
@@ -612,15 +643,15 @@ export const HomePage: React.FC = () => {
         <aside className="home-v2-history">
           <div className="home-v2-panel-header">
             <div>
-              <h2>历史记录</h2>
-              <span>每页 {HISTORY_PAGE_SIZE} 条</span>
+              <h2>{homeText.historyTitle}</h2>
+              <span>{t(homeText.historyPerPage, { count: HISTORY_PAGE_SIZE })}</span>
             </div>
           </div>
           <div className="home-v2-history-list">
             {isHistoryLoading ? (
-              <div className="home-v2-empty">加载中...</div>
+              <div className="home-v2-empty">{homeText.loading}</div>
             ) : rewrites.length === 0 ? (
-              <div className="home-v2-empty">暂无历史记录</div>
+              <div className="home-v2-empty">{homeText.noHistory}</div>
             ) : (
               rewrites.map((item) => (
                 <button
@@ -638,15 +669,15 @@ export const HomePage: React.FC = () => {
                     #{item.id} {summarize(item.source_article)}
                   </div>
                   <div className="home-v2-history-meta">
-                    <span>{formatTime(item.created_at)}</span>
+                    <span>{formatTime(item.created_at, locale)}</span>
                     <span className={`status-${item.status}`}>
                       {item.status === "completed"
-                        ? "完成"
+                        ? homeText.statusCompleted
                         : item.status === "running"
-                          ? "处理中"
+                          ? homeText.statusRunning
                           : item.status === "failed"
-                            ? "失败"
-                            : "待处理"}
+                            ? homeText.statusFailed
+                            : homeText.statusPending}
                     </span>
                   </div>
                 </button>
@@ -667,31 +698,31 @@ export const HomePage: React.FC = () => {
       {showNewStyle && (
         <div className="modal-overlay" onClick={() => setShowNewStyle(false)}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <h3>提取写作风格</h3>
+            <h3>{homeText.extractStyleStart}</h3>
             <Input
-              label="风格名称"
-              placeholder="输入风格名称"
+              label={homeText.styleName}
+              placeholder={homeText.styleNamePlaceholder}
               value={newStyleName}
               onChange={(event) => setNewStyleName(event.target.value)}
               style={{ marginBottom: "12px" }}
             />
             <Textarea
-              label="参考文章"
-              placeholder="粘贴一篇代表文章用于提取风格..."
+              label={homeText.referenceArticle}
+              placeholder={homeText.referenceArticlePlaceholder}
               value={newStyleContent}
               onChange={(event) => setNewStyleContent(event.target.value)}
               style={{ minHeight: "150px" }}
             />
             <div className="modal-actions">
               <Button variant="secondary" onClick={() => setShowNewStyle(false)}>
-                取消
+                {homeText.cancel}
               </Button>
               <Button
                 onClick={handleExtractStyle}
                 loading={isExtracting}
                 disabled={!newStyleName.trim() || !newStyleContent.trim()}
               >
-                提取风格
+                {isExtracting ? homeText.extractStyleLoading : homeText.extractStyleStart}
               </Button>
             </div>
           </div>
@@ -704,7 +735,7 @@ export const HomePage: React.FC = () => {
             className="modal modal-lg material-picker-modal"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3>从素材库选择原文</h3>
+            <h3>{homeText.pickSourceFromMaterials}</h3>
             <div className="material-picker-toolbar">
               <input
                 value={materialPickerKeyword}
@@ -712,7 +743,7 @@ export const HomePage: React.FC = () => {
                   setMaterialPickerKeyword(event.target.value);
                   setMaterialPickerPage(1);
                 }}
-                placeholder="搜索标题、内容、来源"
+                placeholder={homeText.materialSearchPlaceholder}
               />
               {materialPickerKeyword && (
                 <button
@@ -723,16 +754,16 @@ export const HomePage: React.FC = () => {
                     setMaterialPickerPage(1);
                   }}
                 >
-                  清空
+                  {homeText.clear}
                 </button>
               )}
             </div>
 
             <div className="material-picker-list">
               {isMaterialPickerLoading ? (
-                <div className="material-picker-empty">加载中...</div>
+                <div className="material-picker-empty">{homeText.loading}</div>
               ) : materialPickerItems.length === 0 ? (
-                <div className="material-picker-empty">暂无可选素材</div>
+                <div className="material-picker-empty">{homeText.noAvailableMaterials}</div>
               ) : (
                 materialPickerItems.map((material) => (
                   <button
@@ -742,13 +773,15 @@ export const HomePage: React.FC = () => {
                     onClick={() => handleSelectMaterialAsSource(material)}
                   >
                     <div className="material-picker-item-head">
-                      <strong>{material.title || `素材 #${material.id}`}</strong>
-                      <span>{formatTime(material.created_at)}</span>
+                      <strong>
+                        {material.title || t(homeText.materialFallback, { id: material.id })}
+                      </strong>
+                      <span>{formatTime(material.created_at, locale)}</span>
                     </div>
                     <p>{summarize(material.content || "", 160)}</p>
                     {material.source_url && (
                       <div className="material-picker-item-meta">
-                        来源：{material.source_url}
+                        {t(homeText.sourcePrefix, { url: material.source_url })}
                       </div>
                     )}
                   </button>
@@ -764,7 +797,7 @@ export const HomePage: React.FC = () => {
                 onPageChange={(nextPage) => setMaterialPickerPage(nextPage)}
               />
               <Button variant="secondary" onClick={closeMaterialPicker}>
-                关闭
+                {homeText.close}
               </Button>
             </div>
           </div>
@@ -777,28 +810,30 @@ export const HomePage: React.FC = () => {
             className="modal modal-lg history-detail-modal"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3>改写详情 #{selectedHistory.id}</h3>
+            <h3>{t(homeText.rewriteDetail, { id: selectedHistory.id })}</h3>
             <div className="history-detail-meta">
-              <span>状态：{selectedHistory.status}</span>
-              <span>目标字数：{selectedHistory.target_words}</span>
+              <span>{t(homeText.statusLabel, { status: selectedHistory.status })}</span>
+              <span>{t(homeText.targetWordsLabel, { count: selectedHistory.target_words })}</span>
               <span>
-                实际字数：
-                {selectedHistory.actual_words ||
-                  countWords(selectedHistory.final_content || "")}
+                {t(homeText.actualWordsLabel, {
+                  count:
+                    selectedHistory.actual_words ||
+                    countWords(selectedHistory.final_content || ""),
+                })}
               </span>
-              <span>时间：{formatTime(selectedHistory.created_at)}</span>
+              <span>{t(homeText.timeLabel, { time: formatTime(selectedHistory.created_at, locale) })}</span>
             </div>
             <div className="history-detail-block">
-              <label>原文</label>
+              <label>{homeText.sourceArticle}</label>
               <pre>{selectedHistory.source_article}</pre>
             </div>
             <div className="history-detail-block">
-              <label>改写结果</label>
-              <pre>{selectedHistory.final_content || "暂无结果"}</pre>
+              <label>{homeText.rewrittenResult}</label>
+              <pre>{selectedHistory.final_content || homeText.noResult}</pre>
             </div>
             <div className="modal-actions">
               <Button variant="secondary" onClick={() => setSelectedHistory(null)}>
-                关闭
+                {homeText.close}
               </Button>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { formatMessage, useLanguage } from "../i18n";
 import "./Pagination.css";
 
 interface PaginationProps {
@@ -17,6 +18,8 @@ export const Pagination: React.FC<PaginationProps> = ({
   onPageChange,
   className = "",
 }) => {
+  const { text } = useLanguage();
+  const commonText = text.common;
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const currentPage = Math.min(Math.max(page, 1), totalPages);
   const isPrevDisabled = currentPage <= 1;
@@ -28,21 +31,25 @@ export const Pagination: React.FC<PaginationProps> = ({
         type="button"
         onClick={() => onPageChange(currentPage - 1)}
         disabled={isPrevDisabled}
-        aria-label="上一页"
+        aria-label={commonText.prevPage}
       >
         <ChevronLeft size={14} />
-        上一页
+        {commonText.prevPage}
       </button>
       <span>
-        第 {currentPage} / {totalPages} 页 · 共 {total} 条
+        {formatMessage(commonText.pageSummary, {
+          current: currentPage,
+          totalPages,
+          total,
+        })}
       </span>
       <button
         type="button"
         onClick={() => onPageChange(currentPage + 1)}
         disabled={isNextDisabled}
-        aria-label="下一页"
+        aria-label={commonText.nextPage}
       >
-        下一页
+        {commonText.nextPage}
         <ChevronRight size={14} />
       </button>
     </div>

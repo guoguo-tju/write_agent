@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { AppTopNav, Pagination } from "../components";
+import { formatMessage, useLanguage } from "../i18n";
 import {
   getReview,
   getRewritesPage,
@@ -37,12 +38,12 @@ const parseRewriteId = (value: string | null): number | null => {
   return parsed;
 };
 
-const formatTime = (value: string) => {
+const formatTime = (value: string, locale = "zh-CN") => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "--";
   }
-  return date.toLocaleString("zh-CN", {
+  return date.toLocaleString(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -56,13 +57,6 @@ const summarize = (value: string, maxLength = 72) => {
     return compact;
   }
   return `${compact.slice(0, maxLength)}...`;
-};
-
-const statusLabel: Record<RewriteStatus, string> = {
-  completed: "已完成",
-  failed: "失败",
-  running: "处理中",
-  pending: "待处理",
 };
 
 const statusClassName = (status: string) => {
@@ -122,6 +116,18 @@ interface ReviewFeedback {
 }
 
 export const ReviewsPage: React.FC = () => {
+  const { lang, text } = useLanguage();
+  const reviewsText = text.reviews;
+  const locale = lang === "zh" ? "zh-CN" : "en-US";
+  const tx = (zh: string, en: string) => (lang === "zh" ? zh : en);
+  const tf = (template: string, vars: Record<string, string | number>) =>
+    formatMessage(template, vars);
+  const getStatusLabel = (status: RewriteStatus) => {
+    if (status === "completed") return reviewsText.completed;
+    if (status === "failed") return reviewsText.failed;
+    if (status === "running") return reviewsText.running;
+    return reviewsText.pending;
+  };
   const [searchParams, setSearchParams] = useSearchParams();
   const rewriteIdFromQuery = parseRewriteId(searchParams.get("rewrite_id"));
 
@@ -310,7 +316,7 @@ export const ReviewsPage: React.FC = () => {
 
     const content = editedContent.trim();
     if (!content) {
-      setEditMessage("编辑内容不能为空。");
+      setEditMessage(reviewsText.contentRequired);
       return;
     }
 
@@ -324,14 +330,14 @@ export const ReviewsPage: React.FC = () => {
       );
       setIsEditing(false);
       setEditNote("");
-      setEditMessage("人工编辑已保存并生效。");
+      setEditMessage(reviewsText.manualEditSaved);
       await loadData();
       if (selectedRewriteId) {
         await loadLatestReview(selectedRewriteId);
       }
     } catch (error) {
       console.error("保存人工编辑失败:", error);
-      setEditMessage(error instanceof Error ? error.message : "保存失败，请重试。");
+      setEditMessage(error instanceof Error ? error.message : reviewsText.saveFailed);
     } finally {
       setIsSavingEdit(false);
     }
@@ -350,13 +356,13 @@ export const ReviewsPage: React.FC = () => {
       if (enterEdit) {
         setIsEditing(true);
         setEditedContent(selectedRewrite.final_content || "");
-        setEditMessage("审核已完成，已进入人工编辑模式。");
+        setEditMessage(reviewsText.reviewDoneEnterEdit);
       } else {
-        setEditMessage("主编审核已完成，可在弹框中查看审核意见。");
+        setEditMessage(reviewsText.reviewDoneView);
       }
     } catch (error) {
       console.error("执行审核失败:", error);
-      setEditMessage(error instanceof Error ? error.message : "执行审核失败，请稍后重试。");
+      setEditMessage(error instanceof Error ? error.message : reviewsText.reviewFailed);
     } finally {
       setIsRunningReview(false);
     }
@@ -385,20 +391,20 @@ export const ReviewsPage: React.FC = () => {
         <aside className="reviews-v2-queue">
           <div className="reviews-v2-panel-head">
             <div>
-              <h1>审核队列</h1>
-              <p>共 {queueTotal} 条，每页 {QUEUE_PAGE_SIZE} 条</p>
+              <h1>{reviewsText.queueTitle}</h1>
+              <p>{tf(reviewsText.queueSubtitle, { total: queueTotal, size: QUEUE_PAGE_SIZE })}</p>
             </div>
             <button type="button" onClick={() => void loadData()} disabled={isLoading}>
               {isLoading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
-              刷新
+              {reviewsText.refresh}
             </button>
           </div>
 
           <div className="reviews-v2-queue-list">
             {isLoading ? (
-              <div className="reviews-v2-empty">加载中...</div>
+              <div className="reviews-v2-empty">{reviewsText.loading}</div>
             ) : rewrites.length === 0 ? (
-              <div className="reviews-v2-empty">暂无改写记录</div>
+              <div className="reviews-v2-empty">{reviewsText.empty}</div>
             ) : (
               rewrites.map((rewrite) => {
                 const normalizedStatus = statusClassName(rewrite.status) as RewriteStatus;
@@ -414,13 +420,13 @@ export const ReviewsPage: React.FC = () => {
                       <span>#{rewrite.id}</span>
                       <strong className={`status-${normalizedStatus}`}>
                         {getStatusIcon(normalizedStatus)}
-                        {statusLabel[normalizedStatus]}
+                        {getStatusLabel(normalizedStatus)}
                       </strong>
                     </div>
                     <p>{summarize(rewrite.source_article)}</p>
                     <div className="reviews-v2-queue-item-meta">
-                      <span>{formatTime(rewrite.created_at)}</span>
-                      <span>{rewrite.style_name || "未知风格"}</span>
+                      <span>{formatTime(rewrite.created_at, locale)}</span>
+                      <span>{rewrite.style_name || reviewsText.unknownStyle}</span>
                     </div>
                   </button>
                 );
@@ -440,8 +446,8 @@ export const ReviewsPage: React.FC = () => {
         <section className="reviews-v2-source">
           <div className="reviews-v2-panel-head">
             <div>
-              <h2>原文</h2>
-              <p>{selectedRewrite ? `#${selectedRewrite.id}` : "请选择记录"}</p>
+              <h2>{tx("原文", "Source")}</h2>
+              <p>{selectedRewrite ? `#${selectedRewrite.id}` : reviewsText.chooseRecord}</p>
             </div>
           </div>
 
@@ -449,31 +455,37 @@ export const ReviewsPage: React.FC = () => {
             <>
               <div className="reviews-v2-meta-row">
                 <span>
-                  状态：
+                  {tx("状态：", "Status:")}
                   <strong className={`status-${statusClassName(selectedRewrite.status)}`}>
-                    {statusLabel[statusClassName(selectedRewrite.status) as RewriteStatus]}
+                    {getStatusLabel(statusClassName(selectedRewrite.status) as RewriteStatus)}
                   </strong>
                 </span>
-                <span>目标字数：{selectedRewrite.target_words || 0}</span>
-                <span>风格：{selectedRewrite.style_name || "未知"}</span>
+                <span>{tf(reviewsText.targetWords, { count: selectedRewrite.target_words || 0 })}</span>
+                <span>{tf(reviewsText.style, { name: selectedRewrite.style_name || reviewsText.unknown })}</span>
               </div>
               <article className="reviews-v2-paper">{selectedRewrite.source_article}</article>
             </>
           ) : (
-            <div className="reviews-v2-empty reviews-v2-paper-empty">请选择左侧记录查看原文</div>
+            <div className="reviews-v2-empty reviews-v2-paper-empty">{reviewsText.chooseRecord}</div>
           )}
         </section>
 
         <section className="reviews-v2-result">
           <div className="reviews-v2-panel-head">
             <div>
-              <h2>改写结果</h2>
-              <p>{selectedRewrite ? `更新时间 ${formatTime(selectedRewrite.updated_at)}` : ""}</p>
+              <h2>{tx("改写结果", "Rewrite Result")}</h2>
+              <p>
+                {selectedRewrite
+                  ? tf(reviewsText.updatedAt, {
+                      time: formatTime(selectedRewrite.updated_at, locale),
+                    })
+                  : ""}
+              </p>
             </div>
             <div className="reviews-v2-result-actions">
               <button type="button" onClick={copyResult} disabled={!selectedRewrite?.final_content || isEditing}>
                 <Clipboard size={14} />
-                复制
+                {tx("复制", "Copy")}
               </button>
               <button
                 type="button"
@@ -483,9 +495,9 @@ export const ReviewsPage: React.FC = () => {
                 {isRunningReview ? (
                   <>
                     <Loader2 size={14} className="spin" />
-                    审核中...
+                    {tx("审核中...", "Reviewing...")}
                   </>
-                ) : latestReview ? "查看主编审核" : "主编审核"}
+                ) : latestReview ? reviewsText.viewEditorReview : reviewsText.startEditorReview}
               </button>
               <button
                 type="button"
@@ -495,12 +507,12 @@ export const ReviewsPage: React.FC = () => {
                 {isRunningReview || isReviewLoading ? (
                   <>
                     <Loader2 size={14} className="spin" />
-                    准备中...
+                    {tx("准备中...", "Preparing...")}
                   </>
                 ) : (
                   <>
                     <Edit3 size={14} />
-                    人工编辑
+                    {tx("人工编辑", "Manual Edit")}
                   </>
                 )}
               </button>
@@ -510,24 +522,26 @@ export const ReviewsPage: React.FC = () => {
           {selectedRewrite ? (
             <>
               {selectedRewrite.error_message && (
-                <div className="reviews-v2-error">错误信息：{selectedRewrite.error_message}</div>
+                <div className="reviews-v2-error">
+                  {tx("错误信息：", "Error:")} {selectedRewrite.error_message}
+                </div>
               )}
               {isEditing ? (
                 <div className="reviews-v2-inline-edit">
                   <label>
-                    编辑内容
+                    {tx("编辑内容", "Edited Content")}
                     <textarea
                       value={editedContent}
                       onChange={(event) => setEditedContent(event.target.value)}
-                      placeholder="请输入人工优化后的正文内容"
+                      placeholder={reviewsText.editorPlaceholder}
                     />
                   </label>
                   <label>
-                    编辑备注（可选）
+                    {tx("编辑备注（可选）", "Edit Note (Optional)")}
                     <input
                       value={editNote}
                       onChange={(event) => setEditNote(event.target.value)}
-                      placeholder="例如：精简开头、调整段落顺序"
+                      placeholder={reviewsText.notePlaceholder}
                     />
                   </label>
                   <div className="reviews-v2-manual-actions">
@@ -538,7 +552,7 @@ export const ReviewsPage: React.FC = () => {
                       disabled={isSavingEdit}
                     >
                       <X size={14} />
-                      取消
+                      {reviewsText.cancel}
                     </button>
                     <button
                       type="button"
@@ -549,12 +563,12 @@ export const ReviewsPage: React.FC = () => {
                       {isSavingEdit ? (
                         <>
                           <Loader2 size={14} className="spin" />
-                          保存中...
+                          {reviewsText.saving}
                         </>
                       ) : (
                         <>
                           <Save size={14} />
-                          保存并生效
+                          {reviewsText.save}
                         </>
                       )}
                     </button>
@@ -562,20 +576,23 @@ export const ReviewsPage: React.FC = () => {
                 </div>
               ) : (
                 <article className="reviews-v2-paper">
-                  {selectedRewrite.final_content || "暂无改写结果"}
+                  {selectedRewrite.final_content || reviewsText.noRewriteResult}
                 </article>
               )}
 
               {!latestReview && !isReviewLoading && (
                 <div className="reviews-v2-manual-empty">
-                  当前记录暂无审核结果，可点击上方“主编审核”查看。
+                  {tx(
+                    "当前记录暂无审核结果，可点击上方“主编审核”查看。",
+                    "No review result yet. Click Editor Review above to generate one.",
+                  )}
                 </div>
               )}
 
               {editMessage && <div className="reviews-v2-manual-message">{editMessage}</div>}
             </>
           ) : (
-            <div className="reviews-v2-empty reviews-v2-paper-empty">请选择左侧记录查看结果</div>
+            <div className="reviews-v2-empty reviews-v2-paper-empty">{reviewsText.chooseRecord}</div>
           )}
         </section>
       </main>
@@ -591,11 +608,14 @@ export const ReviewsPage: React.FC = () => {
           >
             <div className="reviews-v2-feedback-modal-head">
               <div>
-                <h3>主编审核意见</h3>
+                <h3>{tx("主编审核意见", "Editor Review Notes")}</h3>
                 <p>
                   {latestReview
-                    ? `第 ${latestReview.round || 1} 轮 · ${formatTime(latestReview.created_at)}`
-                    : "尚无审核记录"}
+                    ? tf(reviewsText.roundAndTime, {
+                        round: latestReview.round || 1,
+                        time: formatTime(latestReview.created_at, locale),
+                      })
+                    : reviewsText.noReviewRecord}
                 </p>
               </div>
               <div className="reviews-v2-feedback-modal-actions">
@@ -607,31 +627,38 @@ export const ReviewsPage: React.FC = () => {
                   {isRunningReview ? (
                     <>
                       <Loader2 size={14} className="spin" />
-                      审核中...
+                      {tx("审核中...", "Reviewing...")}
                     </>
-                  ) : "重新主编审核"}
+                  ) : reviewsText.runReviewAgain}
                 </button>
                 <button type="button" onClick={() => setShowReviewModal(false)}>
-                  关闭
+                  {tx("关闭", "Close")}
                 </button>
               </div>
             </div>
 
             <div className="reviews-v2-feedback-modal-body">
               {isReviewLoading || isRunningReview ? (
-                <div className="reviews-v2-manual-empty">正在加载主编审核意见...</div>
+                <div className="reviews-v2-manual-empty">
+                  {tx("正在加载主编审核意见...", "Loading editor review...")}
+                </div>
               ) : latestReview ? (
                 <section className="reviews-v2-feedback">
                   {reviewFeedback?.parseError ? (
                     <div className="reviews-v2-feedback-fallback">
-                      <p>审核意见解析失败，已展示原始内容：</p>
+                      <p>
+                        {tx(
+                          "审核意见解析失败，已展示原始内容：",
+                          "Failed to parse review details. Raw payload is shown:",
+                        )}
+                      </p>
                       <pre>{reviewFeedback.raw}</pre>
                     </div>
                   ) : (
                     <>
                       <div className="reviews-v2-feedback-summary">
                         <span>
-                          结论：
+                          {tx("结论：", "Result:")}
                           <strong
                             className={
                               (reviewFeedback?.parsed?.passed ?? latestReview.result === "passed")
@@ -640,18 +667,18 @@ export const ReviewsPage: React.FC = () => {
                             }
                           >
                             {(reviewFeedback?.parsed?.passed ?? latestReview.result === "passed")
-                              ? "通过"
-                              : "不通过"}
+                              ? reviewsText.pass
+                              : reviewsText.reject}
                           </strong>
                         </span>
-                        <span>总分：{reviewFeedback?.parsed?.quality_scores?.total ?? latestReview.total_score ?? "--"}</span>
+                        <span>{tx("总分：", "Score:")}{reviewFeedback?.parsed?.quality_scores?.total ?? latestReview.total_score ?? "--"}</span>
                         <span>
-                          AI味道：
+                          {tx("AI味道：", "AI smell:")}
                           {reviewFeedback?.parsed?.ai_detection?.has_ai_smell === undefined
                             ? "--"
                             : reviewFeedback?.parsed?.ai_detection?.has_ai_smell
-                              ? "明显"
-                              : "可接受"}
+                              ? reviewsText.aiSmellHigh
+                              : reviewsText.aiSmellLow}
                         </span>
                       </div>
 
@@ -666,21 +693,26 @@ export const ReviewsPage: React.FC = () => {
                           {(reviewFeedback?.parsed?.issues || []).map((issue, index) => (
                             <article key={`${issue.type || "issue"}-${index}`}>
                               <div>
-                                <strong>{issue.type || "未分类问题"}</strong>
-                                <span>{issue.severity || "待确认"}</span>
-                                <span>{issue.location || "位置未标注"}</span>
+                                <strong>{issue.type || reviewsText.uncategorizedIssue}</strong>
+                                <span>{issue.severity || reviewsText.pendingConfirm}</span>
+                                <span>{issue.location || reviewsText.locationUnknown}</span>
                               </div>
-                              <p>{issue.description || "无描述"}</p>
-                              {issue.suggestion && <p>建议：{issue.suggestion}</p>}
+                              <p>{issue.description || reviewsText.noDescription}</p>
+                              {issue.suggestion && <p>{tx("建议：", "Suggestion:")}{issue.suggestion}</p>}
                             </article>
                           ))}
                         </div>
                       ) : (
-                        <div className="reviews-v2-manual-empty">当前审核未返回问题清单。</div>
+                        <div className="reviews-v2-manual-empty">
+                          {tx(
+                            "当前审核未返回问题清单。",
+                            "No issue list was returned in this review.",
+                          )}
+                        </div>
                       )}
 
                       <details className="reviews-v2-feedback-raw">
-                        <summary>查看原始 JSON</summary>
+                        <summary>{tx("查看原始 JSON", "View Raw JSON")}</summary>
                         <pre>{reviewFeedback?.raw || "{}"}</pre>
                       </details>
                     </>
@@ -688,7 +720,10 @@ export const ReviewsPage: React.FC = () => {
                 </section>
               ) : (
                 <div className="reviews-v2-manual-empty">
-                  当前记录暂无审核结果，请先点击“重新主编审核”。
+                  {tx(
+                    "当前记录暂无审核结果，请先点击“重新主编审核”。",
+                    "No review result yet. Please click Run Review Again first.",
+                  )}
                 </div>
               )}
             </div>

@@ -1,17 +1,19 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
 import { PenTool } from "lucide-react";
+import { useLanguage } from "../i18n";
 import "./AppTopNav.css";
 
-const NAV_ITEMS = [
-  { to: "/", label: "改写" },
-  { to: "/styles", label: "风格" },
-  { to: "/materials", label: "素材" },
-  { to: "/reviews", label: "审核" },
-  { to: "/covers", label: "封面" },
-] as const;
-
 export const AppTopNav: React.FC = () => {
+  const { lang, setLang, text } = useLanguage();
+  const NAV_ITEMS = [
+    { to: "/", label: text.nav.links.rewrite },
+    { to: "/styles", label: text.nav.links.styles },
+    { to: "/materials", label: text.nav.links.materials },
+    { to: "/reviews", label: text.nav.links.reviews },
+    { to: "/covers", label: text.nav.links.covers },
+  ] as const;
+
   return (
     <div className="app-top-shell">
       <header className="app-top-nav">
@@ -22,19 +24,41 @@ export const AppTopNav: React.FC = () => {
           <span>砚雀 (YanQue)</span>
         </div>
 
-        <nav className="app-top-nav-links">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `app-top-nav-item${isActive ? " active" : ""}`
-              }
+        <div className="app-top-nav-right">
+          <nav className="app-top-nav-links">
+            {NAV_ITEMS.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `app-top-nav-item${isActive ? " active" : ""}`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+          <div
+            className="app-top-nav-lang"
+            role="group"
+            aria-label={text.nav.languageLabel}
+          >
+            <button
+              type="button"
+              className={lang === "zh" ? "active" : ""}
+              onClick={() => setLang("zh")}
             >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
+              CN
+            </button>
+            <button
+              type="button"
+              className={lang === "en" ? "active" : ""}
+              onClick={() => setLang("en")}
+            >
+              EN
+            </button>
+          </div>
+        </div>
       </header>
     </div>
   );
