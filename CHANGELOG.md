@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-03-13
+
+### Added
+- 前端新增公众号排版页：`/layout`，接入 Markdown 渲染、主题切换、实时预览、富文本/图片粘贴转换、微信兼容复制。
+- 新增排版入口联动：改写页、审核页、封面页均支持“去排版”，并统一携带 `rewrite_id` 跳转。
+- 排版页支持按 `rewrite_id` 导入图文种子：并行拉取改写正文与封面，自动清洗 `[配图建议|...]` 占位符；无封面时给出引导提示。
+
+### Changed
+- 改写页目标长度档位扩展为 `[100, 300, 500, 800, 1000, 1500, 2000, 5000, 8000]`，默认值保持 `500`。
+- 排版页改为路由级懒加载，避免将排版能力打入首页主包。
+- 前端构建新增 `manualChunks` 分包策略，并将 `highlight.js` 改为 `core + 按需语言注册`，显著降低排版相关 chunk 体积。
+
+### Verification
+- `cd frontend && npm run build` 通过，`layout-markdown` 从约 `1072.71kB` 降至 `175.31kB`，不再触发 `>500k` chunk 告警。
+- `cd frontend && npm run lint` 通过（仅剩历史 `react-hooks/exhaustive-deps` warning，无 error）。
+- Playwright 端到端烟测通过：语言切换与持久化、`/layout` 路由、三处“去排版”入口跳转、`rewrite_id` 导入与无封面兜底提示均符合预期。
+
 ## 2026-03-12
 
 ### Added

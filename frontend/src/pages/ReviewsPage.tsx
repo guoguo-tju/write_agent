@@ -10,7 +10,7 @@ import {
   X,
   XCircle
 } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppTopNav, Pagination } from "../components";
 import { formatMessage, useLanguage } from "../i18n";
 import {
@@ -116,6 +116,7 @@ interface ReviewFeedback {
 }
 
 export const ReviewsPage: React.FC = () => {
+  const navigate = useNavigate();
   const { lang, text } = useLanguage();
   const reviewsText = text.reviews;
   const locale = lang === "zh" ? "zh-CN" : "en-US";
@@ -483,6 +484,17 @@ export const ReviewsPage: React.FC = () => {
               </p>
             </div>
             <div className="reviews-v2-result-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedRewrite?.id) {
+                    navigate(`/layout?rewrite_id=${selectedRewrite.id}`);
+                  }
+                }}
+                disabled={!selectedRewrite?.id || isEditing}
+              >
+                {reviewsText.goToLayout}
+              </button>
               <button type="button" onClick={copyResult} disabled={!selectedRewrite?.final_content || isEditing}>
                 <Clipboard size={14} />
                 {tx("复制", "Copy")}

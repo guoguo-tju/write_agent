@@ -185,3 +185,10 @@ export interface WorkflowSnapshot {
     cover: WorkflowStepStatus;
   };
 }
+
+export interface LayoutSeed {
+  rewriteId: number;
+  content: string;
+  coverImageUrl?: string;
+  hasCover: boolean;
+}

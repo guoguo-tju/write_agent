@@ -10,7 +10,7 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppTopNav } from "../components";
 import { formatMessage, useLanguage } from "../i18n";
 import {
@@ -74,6 +74,7 @@ const resolveImageUrl = (imageUrl?: string | null): string => {
 };
 
 export const CoversPage: React.FC = () => {
+  const navigate = useNavigate();
   const { lang, text } = useLanguage();
   const coversText = text.covers;
   const tx = (zh: string, en: string) => (lang === "zh" ? zh : en);
@@ -518,6 +519,18 @@ export const CoversPage: React.FC = () => {
               >
                 <Download size={14} />
                 {tx("下载", "Download")}
+              </button>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => {
+                  if (selectedRewriteId) {
+                    navigate(`/layout?rewrite_id=${selectedRewriteId}`);
+                  }
+                }}
+                disabled={!selectedRewriteId}
+              >
+                {coversText.goToLayout}
               </button>
               <button
                 type="button"

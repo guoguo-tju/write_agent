@@ -1,5 +1,10 @@
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { HomePage, StylesPage, MaterialsPage, ReviewsPage, CoversPage } from './pages';
+
+const LayoutPage = lazy(() =>
+  import('./pages/LayoutPage').then((mod) => ({ default: mod.LayoutPage })),
+);
 
 function App() {
   return (
@@ -10,6 +15,14 @@ function App() {
         <Route path="/materials" element={<MaterialsPage />} />
         <Route path="/reviews" element={<ReviewsPage />} />
         <Route path="/covers" element={<CoversPage />} />
+        <Route
+          path="/layout"
+          element={
+            <Suspense fallback={<div style={{ padding: 24 }}>Loading layout...</div>}>
+              <LayoutPage />
+            </Suspense>
+          }
+        />
       </Routes>
     </BrowserRouter>
   );

@@ -10,7 +10,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppTopNav, Button, Input, Pagination, Textarea } from "../components";
 import { formatMessage, useLanguage } from "../i18n";
 import {
@@ -93,6 +93,7 @@ const parseRagRetrieved = (
 };
 
 export const HomePage: React.FC = () => {
+  const navigate = useNavigate();
   const { lang, text } = useLanguage();
   const homeText = text.home;
   const locale = lang === "zh" ? "zh-CN" : "en-US";
@@ -387,6 +388,7 @@ export const HomePage: React.FC = () => {
   };
 
   const styleValue = selectedStyleId ? String(selectedStyleId) : "";
+  const layoutRewriteId = rewriteIdFromQuery;
 
   return (
     <div className="home-v2-page">
@@ -548,6 +550,17 @@ export const HomePage: React.FC = () => {
               )}
             </div>
             <div className="home-v2-output-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  if (layoutRewriteId) {
+                    navigate(`/layout?rewrite_id=${layoutRewriteId}`);
+                  }
+                }}
+                disabled={!layoutRewriteId}
+              >
+                {homeText.goToLayout}
+              </button>
               <button type="button" onClick={handleCopy} disabled={!rewrittenContent}>
                 <Copy size={14} />
                 {homeText.copy}

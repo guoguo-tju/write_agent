@@ -12,6 +12,7 @@ export const AppTopNav: React.FC = () => {
     { to: "/materials", label: text.nav.links.materials },
     { to: "/reviews", label: text.nav.links.reviews },
     { to: "/covers", label: text.nav.links.covers },
+    { to: "/layout", label: text.nav.links.layout },
   ] as const;
 
   return (
