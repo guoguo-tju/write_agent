@@ -10,6 +10,14 @@ A full-stack AI writing agent for style extraction, rewriting, review, and cover
 - In our practical usage, value shows up in two dimensions: productivity (long-form output can move from hour-level effort to roughly tens-of-minutes), and quality (more stable style, reviewable outputs, and replayable process instead of one-shot prompt luck).
 - During writing, the app can run RAG retrieval against your materials library and show cited materials in the output context for traceability.
 
+## Recent Updates (2026-03)
+
+- Added site-wide bilingual UI (`CN / EN`), defaulting to Chinese, with preference persisted in `localStorage` (`write_agent_lang`).
+- Added a new **Layout** page (`/layout`) for WeChat typography with theme switching, live preview, rich-text/image paste conversion, and WeChat-friendly copy.
+- Added "Go to Layout" entry points from Rewrite/Review/Covers pages; target `rewrite_id` is carried and content is imported automatically (cover image injected on top when available).
+- Expanded rewrite target-length options to `[100, 300, 500, 800, 1000, 1500, 2000, 5000, 8000]` with default `500`.
+- Optimized frontend chunking for `/layout` (lazy route + manual chunks + on-demand `highlight.js` languages) to reduce initial and layout bundle pressure.
+
 ## Core Workflow and Screenshots
 
 1. **Rewrite**: input source text, pick style, stream output.
