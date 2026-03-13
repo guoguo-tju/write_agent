@@ -11,11 +11,13 @@
 - 改写页目标长度档位扩展为 `[100, 300, 500, 800, 1000, 1500, 2000, 5000, 8000]`，默认值保持 `500`。
 - 排版页改为路由级懒加载，避免将排版能力打入首页主包。
 - 前端构建新增 `manualChunks` 分包策略，并将 `highlight.js` 改为 `core + 按需语言注册`，显著降低排版相关 chunk 体积。
+- README 的排版页截图更新为最新 UI（替换 `docs/screenshots/layout-page-v2.png` 与 `docs/screenshots/layout-page.png`）。
 
 ### Verification
 - `cd frontend && npm run build` 通过，`layout-markdown` 从约 `1072.71kB` 降至 `175.31kB`，不再触发 `>500k` chunk 告警。
 - `cd frontend && npm run lint` 通过（仅剩历史 `react-hooks/exhaustive-deps` warning，无 error）。
 - Playwright 端到端烟测通过：语言切换与持久化、`/layout` 路由、三处“去排版”入口跳转、`rewrite_id` 导入与无封面兜底提示均符合预期。
+- 本地校验截图替换已生效：`layout-page-v2.png` 分辨率更新为 `2932x1452`。
 
 ## 2026-03-12
 
