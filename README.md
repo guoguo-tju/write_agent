@@ -9,7 +9,7 @@ A full-stack AI writing agent for style extraction, rewriting, review, cover gen
 - Productize fragmented writing actions into one standardized loop: material retrieval, style-constrained rewriting, quality review, human refinement, cover generation, and layout publishing.
 - In our practical usage, value shows up in two dimensions: productivity (long-form output can move from hour-level effort to roughly tens-of-minutes), and quality (more stable style, reviewable outputs, and replayable process instead of one-shot prompt luck).
 - During writing, the app can run RAG retrieval against your materials library and show cited materials in the output context for traceability.
-- Add a dedicated WeChat layout page (`/layout`) that can auto-import rewrite content and cover via `rewrite_id`, with theme switching, real-time preview, and one-click copy.
+- WeChat layout capability: format content in multiple styles based on official account publishing conventions, then export to WeChat with one click.
 
 ## Core Workflow and Screenshots
 
