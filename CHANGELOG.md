@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-03-14
+
+### Changed
+- 中英文 README 补强“排版（`/layout`）”能力表达：项目简介、亮点段落与推荐体验路径均明确排版闭环。
+- 修复封面页“新建封面风格”弹窗输入控件样式：`input/textarea` 统一深色背景、边框与聚焦态，消除浅色底突兀问题。
+
+### Verification
+- 文档链接与 `layout` 关键描述已在 `README.md`、`README.zh-CN.md` 自检通过。
+- 前端样式修改仅涉及 `frontend/src/pages/CoversPage.css`，未改动业务逻辑与接口。
+
 ## 2026-03-13
 
 ### Added

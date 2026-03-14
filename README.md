@@ -1,14 +1,15 @@
 # Write Agent
 
-A full-stack AI writing agent for style extraction, rewriting, review, cover generation, and WeChat layout (FastAPI + React/Vite).
+A full-stack AI writing agent for style extraction, rewriting, review, cover generation, and publishing-ready WeChat layout (FastAPI + React/Vite).
 
 [中文文档](./README.zh-CN.md)
 
 ## Highlights and Business Value
 
-- Productize fragmented writing actions into one standardized loop: material retrieval, style-constrained rewriting, quality review, human refinement, and cover generation.
+- Productize fragmented writing actions into one standardized loop: material retrieval, style-constrained rewriting, quality review, human refinement, cover generation, and layout publishing.
 - In our practical usage, value shows up in two dimensions: productivity (long-form output can move from hour-level effort to roughly tens-of-minutes), and quality (more stable style, reviewable outputs, and replayable process instead of one-shot prompt luck).
 - During writing, the app can run RAG retrieval against your materials library and show cited materials in the output context for traceability.
+- Add a dedicated WeChat layout page (`/layout`) that can auto-import rewrite content and cover via `rewrite_id`, with theme switching, real-time preview, and one-click copy.
 
 ## Core Workflow and Screenshots
 
@@ -75,6 +76,7 @@ npm run dev
 
 - Frontend: `http://127.0.0.1:5173`
 - Backend docs: `http://127.0.0.1:8000/docs`
+- Suggested first run path: `Rewrite -> Review -> Covers -> Layout (/layout)`.
 
 Note: without `SILICONFLOW_API_KEY`, the main flow still runs, but writing-time RAG retrieval/citation is limited.
 
