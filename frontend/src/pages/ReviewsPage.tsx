@@ -25,6 +25,7 @@ import {
 import "./ReviewsPage.css";
 
 type RewriteStatus = "completed" | "failed" | "running" | "pending";
+type WorkflowTrackState = "pending" | "running" | "completed" | "failed";
 const QUEUE_PAGE_SIZE = 10;
 
 const parseRewriteId = (value: string | null): number | null => {
@@ -129,6 +130,12 @@ export const ReviewsPage: React.FC = () => {
     if (status === "running") return reviewsText.running;
     return reviewsText.pending;
   };
+  const getWorkflowStateLabel = (state: WorkflowTrackState) => {
+    if (state === "completed") return reviewsText.workflowStateCompleted;
+    if (state === "failed") return reviewsText.workflowStateFailed;
+    if (state === "running") return reviewsText.workflowStateRunning;
+    return reviewsText.workflowStatePending;
+  };
   const [searchParams, setSearchParams] = useSearchParams();
   const rewriteIdFromQuery = parseRewriteId(searchParams.get("rewrite_id"));
 
@@ -141,6 +148,7 @@ export const ReviewsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   const [latestReview, setLatestReview] = useState<ReviewRecord | null>(null);
+  const [reviewHistory, setReviewHistory] = useState<ReviewRecord[]>([]);
   const [isReviewLoading, setIsReviewLoading] = useState(false);
 
   const [isEditing, setIsEditing] = useState(false);
@@ -184,6 +192,54 @@ export const ReviewsPage: React.FC = () => {
     }
   }, [latestReview?.feedback]);
 
+  const workflowTrack = useMemo(() => {
+    const round1 = reviewHistory.find((item) => (item.round || 0) === 1);
+    const round2 = reviewHistory.find((item) => (item.round || 0) === 2);
+
+    const resolveReviewState = (item?: ReviewRecord): WorkflowTrackState => {
+      if (!item) {
+        return "pending";
+      }
+      if (item.result === "passed") {
+        return "completed";
+      }
+      if (item.result === "failed" || item.status === "failed") {
+        return "failed";
+      }
+      if (item.status === "running" || item.status === "pending") {
+        return "running";
+      }
+      return "pending";
+    };
+
+    const rewriteRound1: WorkflowTrackState =
+      !selectedRewrite
+        ? "pending"
+        : selectedRewrite.status === "failed"
+          ? "failed"
+          : selectedRewrite.status === "running"
+            ? "running"
+            : "completed";
+
+    const reviewRound1 = resolveReviewState(round1);
+
+    let rewriteRound2: WorkflowTrackState = "pending";
+    if (round2) {
+      rewriteRound2 = "completed";
+    } else if (round1 && (round1.result === "failed" || round1.status === "failed")) {
+      rewriteRound2 = selectedRewrite?.status === "running" ? "running" : "pending";
+    }
+
+    const reviewRound2 = resolveReviewState(round2);
+
+    return [
+      { key: "r1w", label: reviewsText.workflowStepRewriteRound1, state: rewriteRound1 },
+      { key: "r1r", label: reviewsText.workflowStepReviewRound1, state: reviewRound1 },
+      { key: "r2w", label: reviewsText.workflowStepRewriteRound2, state: rewriteRound2 },
+      { key: "r2r", label: reviewsText.workflowStepReviewRound2, state: reviewRound2 },
+    ] as const;
+  }, [reviewHistory, reviewsText, selectedRewrite]);
+
   const syncRewriteQuery = (rewriteId: number | null) => {
     const next = new URLSearchParams(searchParams);
     if (rewriteId) {
@@ -198,7 +254,9 @@ export const ReviewsPage: React.FC = () => {
     setIsReviewLoading(true);
     try {
       const result = await getReviewsByRewrite(rewriteId);
-      const latest = sortReviews(result.items)[0] || null;
+      const sorted = sortReviews(result.items);
+      setReviewHistory(sorted);
+      const latest = sorted[0] || null;
       if (!latest) {
         setLatestReview(null);
         return;
@@ -208,6 +266,7 @@ export const ReviewsPage: React.FC = () => {
     } catch (error) {
       console.error("加载审核详情失败:", error);
       setLatestReview(null);
+      setReviewHistory([]);
     } finally {
       setIsReviewLoading(false);
     }
@@ -258,6 +317,7 @@ export const ReviewsPage: React.FC = () => {
   useEffect(() => {
     if (!selectedRewriteId) {
       setLatestReview(null);
+      setReviewHistory([]);
       return;
     }
     void loadLatestReview(selectedRewriteId);
@@ -533,6 +593,21 @@ export const ReviewsPage: React.FC = () => {
 
           {selectedRewrite ? (
             <>
+              <section className="reviews-v2-workflow-track">
+                <div className="reviews-v2-workflow-head">
+                  <h3>{reviewsText.workflowTrackTitle}</h3>
+                  <span>{reviewsText.workflowTrackSubtitle}</span>
+                </div>
+                <div className="reviews-v2-workflow-grid">
+                  {workflowTrack.map((item) => (
+                    <article key={item.key} className={`workflow-${item.state}`}>
+                      <strong>{item.label}</strong>
+                      <span>{getWorkflowStateLabel(item.state)}</span>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
               {selectedRewrite.error_message && (
                 <div className="reviews-v2-error">
                   {tx("错误信息：", "Error:")} {selectedRewrite.error_message}

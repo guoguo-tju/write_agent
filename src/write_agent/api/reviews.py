@@ -32,7 +32,8 @@ class CreateWorkflowRequest(BaseModel):
     style_id: int
     target_words: int = 1000
     enable_rag: bool = False
-    max_retries: int = 3
+    rag_top_k: int = 3
+    max_retries: int = 1
 
 
 class ReviewResponse(BaseModel):
@@ -166,7 +167,8 @@ async def create_workflow(request: CreateWorkflowRequest):
                     style_id=request.style_id,
                     target_words=request.target_words,
                     enable_rag=request.enable_rag,
-                    max_retries=request.max_retries,
+                    rag_top_k=request.rag_top_k,
+                    max_retries=1,  # 后端统一控制：仅允许一次打回重写
                 ):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             except Exception as e:

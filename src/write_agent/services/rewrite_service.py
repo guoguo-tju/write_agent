@@ -111,6 +111,39 @@ REWRITE_PROMPT = """你是一个专业的文章改写专家。请根据指定的
 请开始改写："""
 
 
+REWRITE_REVISION_PROMPT = """你是一个专业的文章改写专家。你将基于主编审核意见，对已有初稿进行定向修订。
+
+## 写作风格（12维度）
+{style_description}
+
+## 目标字数
+约 {target_words} 字
+**字数误差必须控制在 ±20% 以内**（即 {min_words}-{max_words} 字之间）
+
+## 原始素材（用于校对事实）
+{source_article}
+
+## 当前初稿（必须在此基础上修改）
+{previous_draft}
+
+## 主编审核意见（必须落实）
+{review_feedback}
+
+## RAG 检索素材（可参考）
+{rag_content}
+
+## 修订要求（硬性）
+1. 必须逐条落实主编审核意见，优先修复高优先级问题。
+2. 保留初稿中已合格的表达与结构，不要完全重写成另一篇文章。
+3. 如果审核意见与原文事实冲突，以原文事实为准。
+4. 保持“像人写而不是AI写”的自然表达，避免套路化连接词和模板结尾。
+5. 输出纯正文，不要解释修订过程，不要输出清单。
+6. 在文中合适位置插入 2-4 个配图占位，格式必须是：
+   [配图建议|名称:一句话命名|说明:适合配图的画面描述]
+
+请开始修订："""
+
+
 class RewriteService:
     """
     改写服务
@@ -285,12 +318,16 @@ class RewriteService:
     def rewrite(
         self,
         rewrite_id: int,
+        revision_base_content: Optional[str] = None,
+        review_feedback: Optional[str] = None,
     ) -> Generator[str, None, None]:
         """
         执行改写（流式输出）
 
         Args:
             rewrite_id: 改写记录ID
+            revision_base_content: 修订模式下的基准稿（通常为上一轮改写结果）
+            review_feedback: 修订模式下的主编审核意见
 
         Yields:
             流式输出的内容块
@@ -324,20 +361,41 @@ class RewriteService:
                     rag_retrieved = rag_results
 
             # 2. 构建 Prompt
-            yield json.dumps({"type": "progress", "step": "rewrite", "message": "正在改写..."})
+            is_revision_mode = bool(
+                (revision_base_content or "").strip() and (review_feedback or "").strip()
+            )
+            yield json.dumps(
+                {
+                    "type": "progress",
+                    "step": "rewrite",
+                    "message": "根据主编意见修订中..." if is_revision_mode else "正在改写...",
+                }
+            )
 
             # 计算字数范围 (±20%)
             min_words = int(record.target_words * 0.8)
             max_words = int(record.target_words * 1.2)
 
-            prompt = REWRITE_PROMPT.format(
-                style_description=style.style_description,
-                target_words=record.target_words,
-                min_words=min_words,
-                max_words=max_words,
-                source_article=record.source_article,
-                rag_content=rag_content or "（无相关素材）",
-            )
+            if is_revision_mode:
+                prompt = REWRITE_REVISION_PROMPT.format(
+                    style_description=style.style_description,
+                    target_words=record.target_words,
+                    min_words=min_words,
+                    max_words=max_words,
+                    source_article=record.source_article,
+                    previous_draft=(revision_base_content or "").strip(),
+                    review_feedback=(review_feedback or "").strip(),
+                    rag_content=rag_content or "（无相关素材）",
+                )
+            else:
+                prompt = REWRITE_PROMPT.format(
+                    style_description=style.style_description,
+                    target_words=record.target_words,
+                    min_words=min_words,
+                    max_words=max_words,
+                    source_article=record.source_article,
+                    rag_content=rag_content or "（无相关素材）",
+                )
 
             # 3. 流式调用 LLM
             stream_buffer = ""

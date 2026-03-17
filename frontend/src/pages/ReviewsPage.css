@@ -277,6 +277,73 @@
   flex: 1;
 }
 
+.reviews-v2-workflow-track {
+  margin: 12px 14px 0;
+  border: 1px solid #2a3d34;
+  border-radius: 10px;
+  background: #101915;
+  padding: 10px;
+}
+
+.reviews-v2-workflow-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reviews-v2-workflow-head h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #eaf2ec;
+}
+
+.reviews-v2-workflow-head span {
+  color: #83998e;
+  font-size: 11px;
+}
+
+.reviews-v2-workflow-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.reviews-v2-workflow-grid article {
+  border: 1px solid #2b3f36;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reviews-v2-workflow-grid article strong {
+  font-size: 12px;
+  color: #e3ece6;
+}
+
+.reviews-v2-workflow-grid article span {
+  font-size: 11px;
+  color: #97aca1;
+}
+
+.reviews-v2-workflow-grid article.workflow-completed {
+  border-color: rgba(126, 210, 172, 0.45);
+  background: rgba(56, 121, 90, 0.24);
+}
+
+.reviews-v2-workflow-grid article.workflow-running {
+  border-color: rgba(149, 198, 255, 0.45);
+  background: rgba(56, 87, 121, 0.24);
+}
+
+.reviews-v2-workflow-grid article.workflow-failed {
+  border-color: rgba(240, 162, 162, 0.45);
+  background: rgba(123, 53, 53, 0.2);
+}
+
 .reviews-v2-paper-empty {
   display: flex;
   align-items: center;
@@ -649,6 +716,10 @@
 
   .reviews-v2-paper {
     max-height: 420px;
+  }
+
+  .reviews-v2-workflow-grid {
+    grid-template-columns: 1fr;
   }
 }
 

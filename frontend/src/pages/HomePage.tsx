@@ -19,8 +19,7 @@ import {
   getRewrite,
   getRewritesPage,
   getStyles,
-  rewriteWithStream,
-  startReview,
+  runWorkflowWithStream,
   type Material,
   type RagRetrievedItem,
   type RewriteRecord,
@@ -135,7 +134,7 @@ export const HomePage: React.FC = () => {
   const [materialPickerKeyword, setMaterialPickerKeyword] = useState("");
   const [isMaterialPickerLoading, setIsMaterialPickerLoading] = useState(false);
 
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const workflowAbortRef = useRef<AbortController | null>(null);
 
   const countWords = (content: string) => {
     const cleaned = content
@@ -154,8 +153,8 @@ export const HomePage: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      eventSourceRef.current?.close();
-      eventSourceRef.current = null;
+      workflowAbortRef.current?.abort();
+      workflowAbortRef.current = null;
     };
   }, []);
 
@@ -253,34 +252,14 @@ export const HomePage: React.FC = () => {
     }
   };
 
-  const runAutoReview = async (rewriteId: number) => {
-    setAutoReviewStatus("running");
-    setAutoReviewRewriteId(rewriteId);
-    setAutoReviewMessage(homeText.autoReviewRunning);
-    try {
-      const review = await startReview({ rewrite_id: rewriteId });
-      const reviewPassed = review.result === "passed";
-      const scoreSuffix = review.total_score
-        ? t(homeText.scoreSuffix, { score: review.total_score })
-        : "";
-      setAutoReviewStatus("success");
-      setAutoReviewMessage(
-        t(
-          reviewPassed
-            ? homeText.autoReviewDonePass
-            : homeText.autoReviewDoneFail,
-          { scoreSuffix },
-        ),
-      );
-    } catch (error) {
-      console.error("自动主编审核失败:", error);
-      setAutoReviewStatus("error");
-      setAutoReviewMessage(
-        error instanceof Error
-          ? `${homeText.autoReviewFailed} ${error.message}`
-          : homeText.autoReviewFailed,
-      );
+  const syncRewriteQuery = (rewriteId: number | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (rewriteId) {
+      next.set("rewrite_id", String(rewriteId));
+    } else {
+      next.delete("rewrite_id");
     }
+    setSearchParams(next, { replace: true });
   };
 
   const loadRagReferences = async (rewriteId: number) => {
@@ -300,7 +279,7 @@ export const HomePage: React.FC = () => {
       return;
     }
 
-    eventSourceRef.current?.close();
+    workflowAbortRef.current?.abort();
 
     setIsLoading(true);
     setRewrittenContent("");
@@ -309,9 +288,12 @@ export const HomePage: React.FC = () => {
     setAutoReviewStatus("idle");
     setAutoReviewMessage("");
     setAutoReviewRewriteId(null);
+    const controller = new AbortController();
+    workflowAbortRef.current = controller;
     let currentRewriteId: number | null = null;
+    let lastReviewScore: number | null = null;
 
-    eventSourceRef.current = rewriteWithStream(
+    void runWorkflowWithStream(
       {
         source_article: sourceContent,
         style_id: selectedStyleId,
@@ -319,52 +301,117 @@ export const HomePage: React.FC = () => {
         enable_rag: enableRag,
         rag_top_k: ragTopK,
       },
-      (chunk) => {
-        setRewrittenContent((prev) => {
-          const next = prev + chunk;
-          setResultWordCount(countWords(next));
-          return next;
-        });
-      },
-      (error) => {
-        console.error("改写失败:", error);
-        setIsLoading(false);
-      },
-      (data) => {
-        const finalContent = String(data?.final_content || "");
-        if (finalContent) {
-          setRewrittenContent(finalContent);
-          setResultWordCount(
-            Number(data?.actual_words || 0) || countWords(finalContent),
+      {
+        onStage: (event) => {
+          const rewriteId = Number(event.rewrite_id || 0) || null;
+          if (rewriteId) {
+            currentRewriteId = rewriteId;
+            setAutoReviewRewriteId(rewriteId);
+            syncRewriteQuery(rewriteId);
+          }
+
+          const stage = event.stage;
+          const round = Number(event.round || 1);
+          if (stage === "rewrite") {
+            if (round === 2) {
+              setRewrittenContent("");
+              setResultWordCount(0);
+              setAutoReviewMessage(homeText.loopStageRewriteRound2);
+            } else {
+              setAutoReviewMessage(homeText.loopStageRewriteRound1);
+            }
+          } else if (stage === "review") {
+            setAutoReviewMessage(
+              round === 2
+                ? homeText.loopStageReviewRound2
+                : homeText.loopStageReviewRound1,
+            );
+          }
+          setAutoReviewStatus("running");
+        },
+        onProgress: (event) => {
+          const message = String(event.message || "");
+          if (message) {
+            setAutoReviewMessage(message);
+          }
+        },
+        onContent: (event) => {
+          const delta = String(event.delta || "");
+          if (!delta) {
+            return;
+          }
+          setRewrittenContent((prev) => {
+            const next = prev + delta;
+            setResultWordCount(countWords(next));
+            return next;
+          });
+        },
+        onReviewDone: (event) => {
+          lastReviewScore = Number(event.score || 0) || null;
+        },
+        onDone: (event) => {
+          setIsLoading(false);
+
+          const rewriteId = Number(event.rewrite_id || 0) || currentRewriteId;
+          if (rewriteId) {
+            currentRewriteId = rewriteId;
+            setAutoReviewRewriteId(rewriteId);
+            syncRewriteQuery(rewriteId);
+            void loadRagReferences(rewriteId);
+          }
+
+          if (event.status === "passed") {
+            const scoreSuffix = lastReviewScore
+              ? t(homeText.scoreSuffix, { score: lastReviewScore })
+              : "";
+            setAutoReviewStatus("success");
+            setAutoReviewMessage(t(homeText.loopDonePassed, { scoreSuffix }));
+          } else {
+            setAutoReviewStatus("error");
+            setAutoReviewMessage(homeText.loopDoneMaxRetries);
+          }
+
+          if (historyPage !== 1) {
+            setHistoryPage(1);
+          } else {
+            void loadHistoryPage(1);
+          }
+        },
+        onError: (event) => {
+          setIsLoading(false);
+          const message = String(event.message || "").trim();
+          setAutoReviewStatus("error");
+          setAutoReviewMessage(
+            message ? `${homeText.loopFailed} ${message}` : homeText.loopFailed,
           );
-        }
-        setIsLoading(false);
-        if (currentRewriteId) {
-          const next = new URLSearchParams(searchParams);
-          next.set("rewrite_id", String(currentRewriteId));
-          setSearchParams(next, { replace: true });
-          void loadRagReferences(currentRewriteId);
-          void runAutoReview(currentRewriteId);
-        }
-        if (historyPage !== 1) {
-          setHistoryPage(1);
-        } else {
-          void loadHistoryPage(1);
-        }
+        },
       },
-      (taskId) => {
-        currentRewriteId = taskId;
-        const next = new URLSearchParams(searchParams);
-        next.set("rewrite_id", String(taskId));
-        setSearchParams(next, { replace: true });
-      },
-    );
+      controller.signal,
+    ).catch((error) => {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      console.error("改写-审核闭环执行失败:", error);
+      setIsLoading(false);
+      setAutoReviewStatus("error");
+      setAutoReviewMessage(
+        error instanceof Error
+          ? `${homeText.loopFailed} ${error.message}`
+          : homeText.loopFailed,
+      );
+    }).finally(() => {
+      if (workflowAbortRef.current === controller) {
+        workflowAbortRef.current = null;
+      }
+    });
   };
 
   const cancelRewrite = () => {
-    eventSourceRef.current?.close();
-    eventSourceRef.current = null;
+    workflowAbortRef.current?.abort();
+    workflowAbortRef.current = null;
     setIsLoading(false);
+    setAutoReviewStatus("idle");
+    setAutoReviewMessage("");
   };
 
   const handleCopy = async () => {

@@ -82,6 +82,158 @@ def test_workflow_invalid_style_returns_404() -> None:
     assert resp.json()["detail"] == "风格不存在"
 
 
+def test_workflow_invalid_target_words_returns_400() -> None:
+    """工作流 target_words 越界应返回 400。"""
+    client = TestClient(app)
+    style_id = _create_style_for_rewrite_tests()
+
+    resp = client.post(
+        "/api/reviews/workflow",
+        json={
+            "source_article": "workflow test",
+            "style_id": style_id,
+            "target_words": 99,
+            "enable_rag": False,
+            "max_retries": 1,
+        },
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "目标字数应在 100-10000 之间"
+
+
+def test_workflow_stream_sse_event_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    """工作流 SSE 至少包含 stage + done 事件，且结构可被前端解析。"""
+    from write_agent.api import reviews as reviews_api
+
+    client = TestClient(app)
+    style_id = _create_style_for_rewrite_tests()
+
+    def fake_run_stream(**_kwargs):
+        yield {"type": "stage", "stage": "rewrite", "round": 1, "rewrite_id": 123}
+        yield {"type": "stage", "stage": "review", "round": 1, "rewrite_id": 123}
+        yield {
+            "type": "done",
+            "status": "passed",
+            "passed": True,
+            "rewrite_id": 123,
+            "review_id": 456,
+            "round": 1,
+            "max_retries": 1,
+        }
+
+    monkeypatch.setattr(reviews_api.workflow_service, "run_stream", fake_run_stream)
+
+    with client.stream(
+        "POST",
+        "/api/reviews/workflow",
+        json={
+            "source_article": "workflow test",
+            "style_id": style_id,
+            "target_words": 200,
+            "enable_rag": False,
+            "max_retries": 99,
+        },
+    ) as resp:
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
+        chunks = [line for line in resp.iter_lines() if line and line.startswith("data: ")]
+
+    assert len(chunks) >= 3
+    events = [eval_json(chunk[6:]) for chunk in chunks]
+    assert events[0]["type"] == "stage"
+    assert events[0]["stage"] == "rewrite"
+    assert events[1]["type"] == "stage"
+    assert events[1]["stage"] == "review"
+    assert events[-1]["type"] == "done"
+    assert events[-1]["status"] == "passed"
+    assert events[-1]["rewrite_id"] == 123
+    assert events[-1]["review_id"] == 456
+
+
+def test_workflow_api_forces_single_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """即使请求 max_retries 很大，API 层也应传递 1 给服务层。"""
+    from write_agent.api import reviews as reviews_api
+
+    client = TestClient(app)
+    style_id = _create_style_for_rewrite_tests()
+    captured: dict[str, object] = {}
+
+    def fake_run_stream(**kwargs):
+        captured.update(kwargs)
+        yield {
+            "type": "done",
+            "status": "passed",
+            "passed": True,
+            "rewrite_id": 1,
+            "review_id": 2,
+            "round": 1,
+            "max_retries": kwargs.get("max_retries"),
+        }
+
+    monkeypatch.setattr(reviews_api.workflow_service, "run_stream", fake_run_stream)
+
+    with client.stream(
+        "POST",
+        "/api/reviews/workflow",
+        json={
+            "source_article": "workflow test",
+            "style_id": style_id,
+            "target_words": 200,
+            "enable_rag": True,
+            "rag_top_k": 5,
+            "max_retries": 99,
+        },
+    ) as resp:
+        assert resp.status_code == 200
+        _ = list(resp.iter_lines())
+
+    assert captured["max_retries"] == 1
+    assert captured["rag_top_k"] == 5
+    assert captured["enable_rag"] is True
+
+
+def test_workflow_stream_runtime_error_yields_error_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """流式执行异常时，SSE 应输出 type=error 事件。"""
+    from write_agent.api import reviews as reviews_api
+
+    client = TestClient(app)
+    style_id = _create_style_for_rewrite_tests()
+
+    def fake_run_stream(**_kwargs):
+        raise RuntimeError("boom")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(reviews_api.workflow_service, "run_stream", fake_run_stream)
+
+    with client.stream(
+        "POST",
+        "/api/reviews/workflow",
+        json={
+            "source_article": "workflow test",
+            "style_id": style_id,
+            "target_words": 200,
+            "enable_rag": False,
+            "max_retries": 1,
+        },
+    ) as resp:
+        assert resp.status_code == 200
+        chunks = [line for line in resp.iter_lines() if line and line.startswith("data: ")]
+
+    assert chunks
+    event = eval_json(chunks[-1][6:])
+    assert event["type"] == "error"
+    assert "boom" in event["message"]
+
+
+def eval_json(raw: str) -> dict:
+    import json
+
+    return json.loads(raw)
+
+
 def test_styles_patch_update_success() -> None:
     """PATCH /api/styles/{id} 可成功更新风格。"""
     client = TestClient(app)

@@ -710,34 +710,56 @@ export const startCover = async (
 // ========== 完整工作流 ==========
 
 interface WorkflowStreamEvent {
-  node: string;
-  state: Record<string, unknown>;
+  type: string;
+  stage?: "rewrite" | "review";
+  round?: number;
+  rewrite_id?: number;
+  review_id?: number;
+  delta?: string;
+  message?: string;
+  passed?: boolean;
+  score?: number;
+  reason?: string;
+  status?: "passed" | "reached_max_loops";
+  retry_count?: number;
+  max_retries?: number;
+  actual_words?: number;
 }
 
-export const runFullWorkflow = async (
-  sourceArticle: string,
-  styleId?: number,
-  targetWords?: number,
-): Promise<{
-  rewrite: RewriteRecord;
-  review?: ReviewRecord;
-  cover?: CoverRecord;
-  events: WorkflowStreamEvent[];
-}> => {
-  if (!styleId) {
-    throw new Error("styleId is required");
-  }
+interface WorkflowStreamCallbacks {
+  onStage?: (event: WorkflowStreamEvent) => void;
+  onProgress?: (event: WorkflowStreamEvent) => void;
+  onContent?: (event: WorkflowStreamEvent) => void;
+  onReviewDone?: (event: WorkflowStreamEvent) => void;
+  onDone?: (event: WorkflowStreamEvent) => void;
+  onError?: (event: WorkflowStreamEvent) => void;
+}
 
+export interface WorkflowLoopRequest {
+  source_article: string;
+  style_id: number;
+  target_words?: number;
+  enable_rag?: boolean;
+  rag_top_k?: number;
+}
+
+export const runWorkflowWithStream = async (
+  request: WorkflowLoopRequest,
+  callbacks: WorkflowStreamCallbacks = {},
+  signal?: AbortSignal,
+): Promise<WorkflowStreamEvent[]> => {
   const response = await fetch(`${API_BASE_URL}/api/reviews/workflow`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      source_article: sourceArticle,
-      style_id: styleId,
-      target_words: targetWords || 1000,
-      enable_rag: false,
-      max_retries: 3,
+      source_article: request.source_article,
+      style_id: request.style_id,
+      target_words: request.target_words || 1000,
+      enable_rag: request.enable_rag ?? false,
+      rag_top_k: request.rag_top_k || 3,
+      max_retries: 1,
     }),
+    signal,
   });
 
   if (!response.ok || !response.body) {
@@ -772,12 +794,61 @@ export const runFullWorkflow = async (
       }
       const event = parsed as unknown as WorkflowStreamEvent;
       events.push(event);
+
+      switch (event.type) {
+        case "stage":
+          callbacks.onStage?.(event);
+          break;
+        case "progress":
+          callbacks.onProgress?.(event);
+          break;
+        case "content":
+          callbacks.onContent?.(event);
+          break;
+        case "review_done":
+          callbacks.onReviewDone?.(event);
+          break;
+        case "done":
+          callbacks.onDone?.(event);
+          break;
+        case "error":
+          callbacks.onError?.(event);
+          break;
+        default:
+          break;
+      }
     }
   }
 
-  const lastState = events[events.length - 1]?.state;
-  const rewriteId = Number(lastState?.rewrite_id || 0);
-  const reviewId = Number(lastState?.review_id || 0);
+  return events;
+}
+
+export const runFullWorkflow = async (
+  sourceArticle: string,
+  styleId?: number,
+  targetWords?: number,
+): Promise<{
+  rewrite: RewriteRecord;
+  review?: ReviewRecord;
+  cover?: CoverRecord;
+  events: WorkflowStreamEvent[];
+}> => {
+  if (!styleId) {
+    throw new Error("styleId is required");
+  }
+
+  const events = await runWorkflowWithStream({
+    source_article: sourceArticle,
+    style_id: styleId,
+    target_words: targetWords || 1000,
+    enable_rag: false,
+  });
+
+  const doneEvent = [...events]
+    .reverse()
+    .find((event) => event.type === "done");
+  const rewriteId = Number(doneEvent?.rewrite_id || 0);
+  const reviewId = Number(doneEvent?.review_id || 0);
 
   if (!rewriteId) {
     throw new Error("Workflow completed but rewrite_id is missing");
