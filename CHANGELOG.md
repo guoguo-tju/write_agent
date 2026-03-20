@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-03-20
+
+### Fixed
+- 修复封面自动模式长时间卡在“生成 Prompt”阶段的问题：为关键词提取与封面 Prompt 生成增加超时保护（默认 12s）并自动回退本地兜底策略，避免前端持续“等待生成”。
+- 修复封面本地归档异常：补齐 `src/write_agent/api/covers.py` 中缺失的 `asyncio` 导入，封面生成完成后可稳定落盘到 `./data/covers`，不再回退临时远端链接。
+- 优化封面风格注入：对超长 `style_description`（尤其 JSON）进行关键字段提炼与截断，降低上游模型调用耗时与阻塞风险。
+
+### Added
+- 新增回归测试 `tests/test_cover_prompt_timeout.py`：验证 LLM 慢响应/超时时封面 Prompt 会正确走本地兜底。
+- 新增回归测试 `tests/test_cover_style_description.py`：验证封面风格描述压缩逻辑（优先关键字段、避免超长噪声注入）。
+
+### Verification
+- `PYTHONPATH=src pytest -q tests/test_cover_local_storage.py tests/test_cover_prompt_timeout.py tests/test_cover_style_description.py tests/test_cover_size_mapping.py` 通过（8 passed）。
+- 手工流式验收通过：`GET /api/covers/stream?rewrite_id=23&size=2.35:1` 可返回 `done`，且 `image_url` 为本地路径 `/media/covers/...`。
+
 ## 2026-03-14
 
 ### Changed

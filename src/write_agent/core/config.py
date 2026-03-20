@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     volcengine_model: str = "doubao-seedream-4-5-251128"
     cover_storage_dir: str = "./data/covers"
     cover_media_url_prefix: str = "/media/covers"
+    cover_prompt_llm_timeout_seconds: float = 12.0
 
     # 数据库配置
     database_url: str = "sqlite:///./data/acceptance_write_agent.db"

@@ -2,6 +2,7 @@
 封面生成服务
 """
 import asyncio
+import json
 import logging
 import re
 from datetime import datetime
@@ -33,6 +34,10 @@ class CoverService:
         self.base_url = settings.volcengine_base_url
         self.model = settings.volcengine_model
         self.api_key = settings.volcengine_api_key
+        self.prompt_llm_timeout_seconds = max(
+            1.0,
+            float(settings.cover_prompt_llm_timeout_seconds),
+        )
         self.cover_storage_dir = Path(settings.cover_storage_dir).resolve()
         self.cover_media_url_prefix = settings.cover_media_url_prefix
         if not self.cover_media_url_prefix.startswith("/"):
@@ -106,6 +111,41 @@ class CoverService:
             "ultra detailed, no watermark, no text overlay."
         )
 
+    @staticmethod
+    def _compress_style_description(raw: str, max_chars: int = 600) -> str:
+        """
+        压缩风格描述，避免把超长 JSON 直接塞入提示词导致请求过慢。
+        """
+        text = (raw or "").strip()
+        if not text:
+            return ""
+
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            parsed = None
+
+        if isinstance(parsed, dict):
+            preferred_keys = [
+                "overall_summary",
+                "persona",
+                "thinking_pattern",
+                "opening_pattern",
+                "tone",
+            ]
+            segments: list[str] = []
+            for key in preferred_keys:
+                value = parsed.get(key)
+                if isinstance(value, str) and value.strip():
+                    segments.append(f"{key}: {value.strip()}")
+            if segments:
+                text = " | ".join(segments)
+
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) > max_chars:
+            return f"{text[:max_chars]}..."
+        return text
+
     async def generate_prompt(
         self,
         content: str,
@@ -131,7 +171,9 @@ class CoverService:
             if style.name:
                 style_attrs.append(f"风格名称: {style.name}")
             if style.style_description:
-                style_attrs.append(f"风格描述: {style.style_description}")
+                compressed = self._compress_style_description(style.style_description)
+                if compressed:
+                    style_attrs.append(f"风格描述: {compressed}")
             if style.tags:
                 style_attrs.append(f"标签: {style.tags}")
             if style_attrs:
@@ -150,13 +192,27 @@ class CoverService:
 请直接输出关键词，用逗号分隔，不要包含其他内容。
 """
 
+        async def chat_with_timeout(payload_messages: list[dict]) -> str:
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    llm.chat,
+                    messages=payload_messages,
+                ),
+                timeout=self.prompt_llm_timeout_seconds,
+            )
+
         # 先提取关键词（使用 to_thread 调用同步方法）
         try:
-            keywords_response: str = await asyncio.to_thread(
-                llm.chat,
-                messages=[{"role": "user", "content": extract_prompt}]
+            keywords_response: str = await chat_with_timeout(
+                [{"role": "user", "content": extract_prompt}]
             )
             keywords = keywords_response.strip()
+        except asyncio.TimeoutError:
+            logger.warning(
+                "关键词提取超时（%.1fs），使用本地兜底策略",
+                self.prompt_llm_timeout_seconds,
+            )
+            keywords = self._extract_keywords_fallback(content)
         except Exception as exc:
             logger.warning("关键词提取失败，使用本地兜底策略: %s", exc)
             keywords = self._extract_keywords_fallback(content)
@@ -180,11 +236,19 @@ class CoverService:
 
         # 生成封面Prompt（使用 to_thread 调用同步方法）
         try:
-            prompt_response: str = await asyncio.to_thread(
-                llm.chat,
-                messages=[{"role": "user", "content": cover_prompt}]
+            prompt_response: str = await chat_with_timeout(
+                [{"role": "user", "content": cover_prompt}]
             )
             generated_prompt = prompt_response.strip()
+        except asyncio.TimeoutError:
+            logger.warning(
+                "封面Prompt生成超时（%.1fs），使用本地兜底策略",
+                self.prompt_llm_timeout_seconds,
+            )
+            generated_prompt = self._build_prompt_fallback(
+                keywords=keywords,
+                style_description=style_description,
+            )
         except Exception as exc:
             logger.warning("封面Prompt生成失败，使用本地兜底策略: %s", exc)
             generated_prompt = self._build_prompt_fallback(

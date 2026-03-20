@@ -1,6 +1,7 @@
 """
 封面生成 API
 """
+import asyncio
 import json
 import logging
 import re
