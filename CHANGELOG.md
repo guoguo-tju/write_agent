@@ -3,6 +3,9 @@
 ## 2026-03-22
 
 ### Added
+- 新增仓库级 AI 开发入口规范：`AGENTS.md`（强制先读 SPEC，再执行开发/验收/更新 changelog）。
+- 新增全栈开发规范文档：`docs/specs/development-spec-v1.md`（覆盖架构约束、可观测性约束、兼容策略、DoD 与排障 SOP）。
+- 新增分层验收清单：`docs/specs/verification-checklist.md`（定义前端/后端/核心链路的必跑验证项）。
 - 新增 GitHub 仓库增强缓存模型 `GitHubRepoEnrichmentCache`（按 `repo_full_name` 唯一），并在模型导出与建库脚本中注册。
 - 新增趋势改写行级构建接口：`POST /api/github-trends/rewrite/build-item`，支持后端统一产出改写预填内容与增强元数据。
 - 新增前端趋势增强元类型：`GithubTrendEnrichMeta`、`GithubTrendAddMaterialResponse`、`GithubTrendRewriteBuildResponse`。
@@ -13,6 +16,8 @@
 - 新增可观测回归测试：`tests/test_observability_api.py`（trace 头、错误字段、SSE `obs`、检索与鉴权）。
 
 ### Changed
+- `README.md` 与 `README.zh-CN.md` 新增“开发规范入口”区块，统一指向 `AGENTS.md` 与 `docs/specs/*`。
+- 统一后续迭代默认流程：需求对齐 -> 对照 SPEC -> 实施改动 -> 分层机检 -> 更新 changelog。
 - 行级「素材库 / 改写」接入统一“仓库增强抓取”管线，支持 `enhance` 开关（默认开启）、缓存优先与失败降级不阻断主流程。
 - `POST /api/github-trends/materials/add-item` 扩展可选参数 `enhance`，返回中新增 `updated` 与 `enrich` 元数据。
 - 行级「改写」从前端本地拼接改为调用后端构建，增强成功时注入结构化摘要（项目定位、核心能力、快速上手、适用场景、风险/局限、最近动态），失败时自动回退周榜基础模板。
@@ -27,6 +32,8 @@
 - `.env.example` 扩展 `OBS_ENABLED/OBS_MODE/OBS_LOG_DIR/OBS_RETENTION_DAYS/OBS_TOKEN/OBS_STRICT_DEV`。
 
 ### Verification
+- `rg -n "AGENTS.md|development-spec-v1|verification-checklist" README.md README.zh-CN.md docs/specs/*.md` 可命中全部入口链接与规范文件。
+- `test -f AGENTS.md && test -f docs/specs/development-spec-v1.md && test -f docs/specs/verification-checklist.md` 通过。
 - `PYTHONPATH=src uv run pytest -q tests/test_github_trends_service.py tests/test_github_trends_api.py` 通过（12 passed）。
 - `cd frontend && npm run build` 通过。
 - `PYTHONPATH=src uv run pytest -q` 通过（74 passed）。

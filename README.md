@@ -93,6 +93,12 @@ Note: without `SILICONFLOW_API_KEY`, the main flow still runs, but writing-time 
 └── docs/screenshots/       # README screenshots
 ```
 
+## Development Spec
+
+- Entry for AI contributors: [`AGENTS.md`](./AGENTS.md)
+- Full engineering spec: [`docs/specs/development-spec-v1.md`](./docs/specs/development-spec-v1.md)
+- Verification checklist: [`docs/specs/verification-checklist.md`](./docs/specs/verification-checklist.md)
+
 ## FAQ
 
 ### 1) Backend starts but rewrite/style/review fails

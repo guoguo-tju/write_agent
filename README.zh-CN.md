@@ -94,6 +94,12 @@ npm run dev
 └── docs/screenshots/       # README 截图
 ```
 
+## 开发规范入口
+
+- AI 迭代入口：[`AGENTS.md`](./AGENTS.md)
+- 全栈开发规范：[`docs/specs/development-spec-v1.md`](./docs/specs/development-spec-v1.md)
+- 验收清单：[`docs/specs/verification-checklist.md`](./docs/specs/verification-checklist.md)
+
 ## 常见问题
 
 ### 1）后端启动了，但改写/风格提取/审核失败
