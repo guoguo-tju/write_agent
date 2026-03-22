@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 
 from write_agent.core import get_settings, get_logger
 from write_agent.models.material import Material
+from write_agent.observability import bind_entities, emit_obs_event, obs_scope
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -214,91 +215,98 @@ class MaterialService:
             ValueError: 如果素材内容为空
             Exception: 如果添加到向量库失败
         """
-        normalized_title = (title or "").strip()
-        normalized_content = (content or "").strip()
-        normalized_url = (source_url or "").strip() or None
-        normalized_tags = (tags or "").strip() or None
+        with obs_scope("SVC.MATERIAL.CREATE", "DB_WRITE"):
+            normalized_title = (title or "").strip()
+            normalized_content = (content or "").strip()
+            normalized_url = (source_url or "").strip() or None
+            normalized_tags = (tags or "").strip() or None
 
-        if not normalized_content and not normalized_url:
-            raise ValueError("素材内容和来源链接不能同时为空")
+            if not normalized_content and not normalized_url:
+                raise ValueError("素材内容和来源链接不能同时为空")
 
-        # 如果提供了 source_url 但没有 content，自动抓取内容
-        if normalized_url and not self._is_valid_url(normalized_url):
+            if normalized_url and not self._is_valid_url(normalized_url):
+                if not normalized_content:
+                    raise ValueError("来源链接格式无效，请输入完整的 http(s) 链接")
+                normalized_url = None
+
+            if normalized_url and not normalized_content:
+                logger.info(f"检测到 URL，将自动抓取内容: {normalized_url}")
+                fetched_content = self._fetch_url_content(normalized_url)
+                if fetched_content:
+                    normalized_content = fetched_content
+                    logger.info(f"自动抓取内容成功，长度: {len(normalized_content)} 字符")
+                else:
+                    raise ValueError("无法从 URL 抓取内容，请手动提供 content")
+
             if not normalized_content:
-                raise ValueError("来源链接格式无效，请输入完整的 http(s) 链接")
-            normalized_url = None
+                raise ValueError("素材内容不能为空")
 
-        if normalized_url and not normalized_content:
-            logger.info(f"检测到 URL，将自动抓取内容: {normalized_url}")
-            fetched_content = self._fetch_url_content(normalized_url)
-            if fetched_content:
-                normalized_content = fetched_content
-                logger.info(f"自动抓取内容成功，长度: {len(normalized_content)} 字符")
-            else:
-                raise ValueError("无法从 URL 抓取内容，请手动提供 content")
+            if not normalized_title:
+                normalized_title = self._infer_title_from_content(normalized_content) or ""
+            if not normalized_title and normalized_url:
+                normalized_title = normalized_url[:100]
+            if not normalized_title:
+                normalized_title = "未命名素材"
 
-        if not normalized_content:
-            raise ValueError("素材内容不能为空")
-
-        if not normalized_title:
-            normalized_title = self._infer_title_from_content(normalized_content) or ""
-        if not normalized_title and normalized_url:
-            normalized_title = normalized_url[:100]
-        if not normalized_title:
-            normalized_title = "未命名素材"
-
-        logger.info(f"添加素材: {normalized_title}")
-
-        # 先创建素材记录
-        with Session(engine) as session:
-            material = Material(
-                title=normalized_title,
-                content=normalized_content,
-                tags=normalized_tags,
-                source_url=normalized_url,
-                embedding_status="pending",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
+            logger.info(f"添加素材: {normalized_title}")
+            emit_obs_event(
+                level="INFO",
+                message="svc.material.create.start",
+                payload={"has_url": bool(normalized_url), "has_tags": bool(normalized_tags)},
             )
-            session.add(material)
-            session.commit()
-            session.refresh(material)
-            material_id = material.id
 
-        # 添加到向量库
-        embedding_status = "pending"
-        embedding_error = None
-        try:
-            self.rag_service.add_material(
-                material_id=material_id,
-                content=f"{normalized_title}\n\n{normalized_content}",
-                metadata={
-                    "title": normalized_title,
-                    "tags": normalized_tags,
-                    "source_url": normalized_url,
-                },
+            with Session(engine) as session:
+                material = Material(
+                    title=normalized_title,
+                    content=normalized_content,
+                    tags=normalized_tags,
+                    source_url=normalized_url,
+                    embedding_status="pending",
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                )
+                session.add(material)
+                session.commit()
+                session.refresh(material)
+                material_id = material.id
+            bind_entities({"material_id": material_id})
+
+            embedding_status = "pending"
+            embedding_error = None
+            try:
+                self.rag_service.add_material(
+                    material_id=material_id,
+                    content=f"{normalized_title}\n\n{normalized_content}",
+                    metadata={
+                        "title": normalized_title,
+                        "tags": normalized_tags,
+                        "source_url": normalized_url,
+                    },
+                )
+                embedding_status = "completed"
+            except Exception as e:
+                logger.error(f"添加到向量库失败: {e}", exc_info=True)
+                embedding_status = "failed"
+                embedding_error = str(e)
+
+            with Session(engine) as session:
+                material = session.get(Material, material_id)
+                material.embedding_status = embedding_status
+                material.embedding_error = embedding_error
+                session.commit()
+
+            if embedding_status == "failed":
+                logger.warning(
+                    f"素材创建成功但向量库添加失败: material_id={material_id}, error={embedding_error}"
+                )
+            emit_obs_event(
+                level="INFO",
+                message="svc.material.create.done",
+                entities={"material_id": material_id},
+                payload={"embedding_status": embedding_status},
             )
-            embedding_status = "completed"
-        except Exception as e:
-            logger.error(f"添加到向量库失败: {e}", exc_info=True)
-            embedding_status = "failed"
-            embedding_error = str(e)
-            # 注意：即使向量库添加失败，素材记录仍然保留
-
-        # 更新状态
-        with Session(engine) as session:
-            material = session.get(Material, material_id)
-            material.embedding_status = embedding_status
-            material.embedding_error = embedding_error
-            session.commit()
-
-        # 如果向量库添加失败，返回警告但仍返回素材对象
-        if embedding_status == "failed":
-            logger.warning(f"素材创建成功但向量库添加失败: material_id={material_id}, error={embedding_error}")
-
-        # 返回完整对象
-        with Session(engine) as session:
-            return session.get(Material, material_id)
+            with Session(engine) as session:
+                return session.get(Material, material_id)
 
     def get_material(self, material_id: int) -> Optional[Material]:
         """获取素材详情"""
@@ -319,74 +327,88 @@ class MaterialService:
         Returns:
             Material 对象；不存在时返回 None
         """
-        with Session(engine) as session:
-            material = session.get(Material, material_id)
-            if not material:
-                return None
+        with obs_scope("SVC.MATERIAL.UPDATE", "DB_WRITE", entities={"material_id": material_id}):
+            with Session(engine) as session:
+                material = session.get(Material, material_id)
+                if not material:
+                    return None
 
-            next_title = material.title if title is None else title.strip()
-            next_content = material.content if content is None else content.strip()
-            next_tags = material.tags if tags is None else (tags.strip() or None)
-            next_url = material.source_url if source_url is None else (source_url.strip() or None)
+                next_title = material.title if title is None else title.strip()
+                next_content = material.content if content is None else content.strip()
+                next_tags = material.tags if tags is None else (tags.strip() or None)
+                next_url = material.source_url if source_url is None else (source_url.strip() or None)
 
-            if not next_title:
-                raise ValueError("素材标题不能为空")
+                if not next_title:
+                    raise ValueError("素材标题不能为空")
 
-            if next_url and not self._is_valid_url(next_url):
-                raise ValueError("来源链接格式无效，请输入完整的 http(s) 链接")
+                if next_url and not self._is_valid_url(next_url):
+                    raise ValueError("来源链接格式无效，请输入完整的 http(s) 链接")
 
-            # 允许“仅链接”提交编辑：如果正文为空则尝试抓取
-            if not next_content and next_url:
-                fetched_content = self._fetch_url_content(next_url)
-                if fetched_content:
-                    next_content = fetched_content
-                else:
-                    raise ValueError("无法从 URL 抓取内容，请手动补充正文")
+                if not next_content and next_url:
+                    fetched_content = self._fetch_url_content(next_url)
+                    if fetched_content:
+                        next_content = fetched_content
+                    else:
+                        raise ValueError("无法从 URL 抓取内容，请手动补充正文")
 
-            if not next_content:
-                raise ValueError("素材内容不能为空")
+                if not next_content:
+                    raise ValueError("素材内容不能为空")
 
-            material.title = next_title
-            material.content = next_content
-            material.tags = next_tags
-            material.source_url = next_url
-            material.embedding_status = "pending"
-            material.embedding_error = None
-            material.updated_at = datetime.now()
-            session.commit()
+                material.title = next_title
+                material.content = next_content
+                material.tags = next_tags
+                material.source_url = next_url
+                material.embedding_status = "pending"
+                material.embedding_error = None
+                material.updated_at = datetime.now()
+                session.commit()
 
-        embedding_status = "completed"
-        embedding_error = None
-        try:
-            try:
-                self.rag_service.delete_material(material_id)
-            except Exception as e:
-                logger.warning(f"素材更新时删除旧向量失败: material_id={material_id}, error={e}")
-
-            self.rag_service.add_material(
-                material_id=material_id,
-                content=f"{next_title}\n\n{next_content}",
-                metadata={
-                    "title": next_title,
-                    "tags": next_tags,
-                    "source_url": next_url,
-                },
+            emit_obs_event(
+                level="INFO",
+                message="svc.material.update.start",
+                entities={"material_id": material_id},
             )
-        except Exception as e:
-            embedding_status = "failed"
-            embedding_error = str(e)
-            logger.error(f"素材更新后重建向量失败: material_id={material_id}, error={e}", exc_info=True)
+            embedding_status = "completed"
+            embedding_error = None
+            try:
+                try:
+                    self.rag_service.delete_material(material_id)
+                except Exception as e:
+                    logger.warning(f"素材更新时删除旧向量失败: material_id={material_id}, error={e}")
 
-        with Session(engine) as session:
-            material = session.get(Material, material_id)
-            if not material:
-                return None
-            material.embedding_status = embedding_status
-            material.embedding_error = embedding_error
-            material.updated_at = datetime.now()
-            session.commit()
-            session.refresh(material)
-            return material
+                self.rag_service.add_material(
+                    material_id=material_id,
+                    content=f"{next_title}\n\n{next_content}",
+                    metadata={
+                        "title": next_title,
+                        "tags": next_tags,
+                        "source_url": next_url,
+                    },
+                )
+            except Exception as e:
+                embedding_status = "failed"
+                embedding_error = str(e)
+                logger.error(
+                    f"素材更新后重建向量失败: material_id={material_id}, error={e}",
+                    exc_info=True,
+                )
+
+            with Session(engine) as session:
+                material = session.get(Material, material_id)
+                if not material:
+                    return None
+                material.embedding_status = embedding_status
+                material.embedding_error = embedding_error
+                material.updated_at = datetime.now()
+                session.commit()
+                session.refresh(material)
+                emit_obs_event(
+                    level="INFO",
+                    message="svc.material.update.done",
+                    entities={"material_id": material_id},
+                    payload={"embedding_status": embedding_status},
+                )
+                return material
 
     def get_all_materials(
         self,

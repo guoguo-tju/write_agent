@@ -10,6 +10,8 @@ from write_agent.models import (
     ManualEditRecord,
     GitHubTrendingSnapshot,
     GitHubTrendingItem,
+    GitHubRepoEnrichmentCache,
+    ObservabilityEvent,
 )
 from write_agent.core import get_settings
 

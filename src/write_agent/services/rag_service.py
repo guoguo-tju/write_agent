@@ -9,6 +9,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.documents import Document
 
 from write_agent.core import get_settings, get_logger
+from write_agent.observability import emit_obs_event, obs_scope
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -125,25 +126,36 @@ class RAGService:
         Returns:
             [{"material_id": 1, "content": "...", "score": 0.95}]
         """
-        results = self.vector_store.similarity_search_with_score(
-            query=query,
-            k=top_k,
-        )
+        with obs_scope("SVC.RAG.RETRIEVE", "RAG_RETRIEVE"):
+            emit_obs_event(
+                level="INFO",
+                message="svc.rag.search.start",
+                payload={"query_len": len(query or ""), "top_k": top_k},
+            )
+            results = self.vector_store.similarity_search_with_score(
+                query=query,
+                k=top_k,
+            )
 
-        # 转换为统一格式
-        retrieved = []
-        for doc, score in results:
-            material_id = doc.metadata.get("material_id", 0)
-            # Chroma 的 score 越小越相似，转换为 0-1
-            similarity = 1 / (1 + score)
-            retrieved.append({
-                "material_id": material_id,
-                "content": doc.page_content,
-                "score": round(similarity, 3),
-            })
+            retrieved = []
+            for doc, score in results:
+                material_id = doc.metadata.get("material_id", 0)
+                similarity = 1 / (1 + score)
+                retrieved.append(
+                    {
+                        "material_id": material_id,
+                        "content": doc.page_content,
+                        "score": round(similarity, 3),
+                    }
+                )
 
-        logger.info(f"RAG 检索完成，返回 {len(retrieved)} 条结果")
-        return retrieved
+            logger.info(f"RAG 检索完成，返回 {len(retrieved)} 条结果")
+            emit_obs_event(
+                level="INFO",
+                message="svc.rag.search.done",
+                payload={"returned": len(retrieved)},
+            )
+            return retrieved
 
     def delete_material(self, material_id: int):
         """从向量库删除素材"""

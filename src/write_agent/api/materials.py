@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from write_agent.services.material_service import get_material_service
 from write_agent.core import get_logger
+from write_agent.observability import bind_entities, emit_obs_event, obs_scope
 
 logger = get_logger(__name__)
 
@@ -73,31 +74,39 @@ class MaterialRetrieveResponse(BaseModel):
 @router.post("", response_model=MaterialResponse)
 async def create_material(request: CreateMaterialRequest):
     """添加素材"""
-    try:
-        source_url = request.source_url or request.source
+    with obs_scope("API.MATERIALS.CREATE", "HTTP_SYNC"):
+        try:
+            source_url = request.source_url or request.source
 
-        material = material_service.create_material(
-            title=request.title,
-            content=request.content,
-            tags=request.tags,
-            source_url=source_url,
-        )
+            material = material_service.create_material(
+                title=request.title,
+                content=request.content,
+                tags=request.tags,
+                source_url=source_url,
+            )
+            bind_entities({"material_id": material.id})
+            emit_obs_event(
+                level="INFO",
+                message="api.materials.create",
+                entities={"material_id": material.id},
+                payload={"has_source_url": bool(source_url), "has_tags": bool(request.tags)},
+            )
 
-        return MaterialResponse(
-            id=material.id,
-            title=material.title,
-            content=material.content,
-            tags=material.tags,
-            source_url=material.source_url,
-            embedding_status=material.embedding_status,
-            embedding_error=material.embedding_error,
-            created_at=material.created_at.isoformat(),
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"添加素材失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"添加素材失败: {str(e)}")
+            return MaterialResponse(
+                id=material.id,
+                title=material.title,
+                content=material.content,
+                tags=material.tags,
+                source_url=material.source_url,
+                embedding_status=material.embedding_status,
+                embedding_error=material.embedding_error,
+                created_at=material.created_at.isoformat(),
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error(f"添加素材失败: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"添加素材失败: {str(e)}")
 
 
 @router.get("", response_model=MaterialListResponse)

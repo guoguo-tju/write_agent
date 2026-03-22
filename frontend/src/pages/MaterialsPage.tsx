@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { FilePlus2, Search, Trash2, X } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { AppTopNav, Pagination } from "../components";
 import { formatMessage, useLanguage } from "../i18n";
 import {
   addMaterial,
   deleteMaterial,
+  getMaterial,
   getMaterialsPage,
   retrieveMaterials,
   updateMaterial,
@@ -97,6 +99,7 @@ const detectSourcePlatform = (value: string): SourcePlatform => {
 
 export const MaterialsPage: React.FC = () => {
   const { lang, text } = useLanguage();
+  const [searchParams, setSearchParams] = useSearchParams();
   const materialsText = text.materials;
   const locale = lang === "zh" ? "zh-CN" : "en-US";
   const tx = (zh: string, en: string) => (lang === "zh" ? zh : en);
@@ -143,6 +146,7 @@ export const MaterialsPage: React.FC = () => {
     () => detectSourcePlatform(editSource),
     [editSource],
   );
+  const materialIdParam = searchParams.get("material_id");
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -312,6 +316,44 @@ export const MaterialsPage: React.FC = () => {
     setEditTags("");
     setEditError("");
   };
+
+  useEffect(() => {
+    if (!materialIdParam) {
+      return;
+    }
+
+    const materialId = Number(materialIdParam);
+    if (!Number.isInteger(materialId) || materialId <= 0) {
+      setSearchParams({}, { replace: true });
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const material = await getMaterial(materialId);
+        if (cancelled) {
+          return;
+        }
+        setEditingMaterial(material);
+        setEditTitle(material.title || "");
+        setEditContent(material.content || "");
+        setEditSource(material.source_url || "");
+        setEditTags(material.tags || "");
+        setEditError("");
+      } catch (error) {
+        console.error("加载指定素材详情失败:", error);
+      } finally {
+        if (!cancelled) {
+          setSearchParams({}, { replace: true });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [materialIdParam, setSearchParams]);
 
   const handleUpdateMaterial = async () => {
     if (!editingMaterial) {

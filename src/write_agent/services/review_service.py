@@ -8,6 +8,7 @@ from sqlmodel import Session, create_engine, select
 
 from write_agent.core import get_settings, get_logger
 from write_agent.models.review_record import ReviewRecord
+from write_agent.observability import bind_entities, emit_obs_event, obs_scope
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -125,32 +126,37 @@ class ReviewService:
         Returns:
             ReviewRecord 对象
         """
-        logger.info(f"创建审核记录: rewrite_id={rewrite_id}")
+        with obs_scope("SVC.REVIEW.CREATE", "WORKFLOW_NODE", entities={"rewrite_id": rewrite_id}):
+            logger.info(f"创建审核记录: rewrite_id={rewrite_id}")
 
-        with Session(engine) as session:
-            # 检查是否已有审核记录
-            statement = select(ReviewRecord).where(
-                ReviewRecord.rewrite_id == rewrite_id
-            ).order_by(ReviewRecord.round.desc())
-            existing = session.exec(statement).first()
+            with Session(engine) as session:
+                statement = select(ReviewRecord).where(
+                    ReviewRecord.rewrite_id == rewrite_id
+                ).order_by(ReviewRecord.round.desc())
+                existing = session.exec(statement).first()
 
-            # 确定审核轮次
-            round_num = 1
-            if existing:
-                round_num = existing.round + 1
+                round_num = 1
+                if existing:
+                    round_num = existing.round + 1
 
-            record = ReviewRecord(
-                rewrite_id=rewrite_id,
-                content=content,
-                result="pending",
-                round=round_num,
-                retry_count=0,
-                status="running",
-            )
-            session.add(record)
-            session.commit()
-            session.refresh(record)
-            return record
+                record = ReviewRecord(
+                    rewrite_id=rewrite_id,
+                    content=content,
+                    result="pending",
+                    round=round_num,
+                    retry_count=0,
+                    status="running",
+                )
+                session.add(record)
+                session.commit()
+                session.refresh(record)
+                bind_entities({"rewrite_id": rewrite_id, "review_id": record.id, "round": round_num})
+                emit_obs_event(
+                    level="INFO",
+                    message="svc.review.create.done",
+                    entities={"rewrite_id": rewrite_id, "review_id": record.id, "round": round_num},
+                )
+                return record
 
     def review(
         self,
@@ -167,19 +173,26 @@ class ReviewService:
         Yields:
             JSON 格式的流式输出
         """
-        from write_agent.services.llm_service import get_llm_service
+        with obs_scope("SVC.REVIEW.STREAM", "WORKFLOW_NODE", entities={"review_id": review_id}):
+            from write_agent.services.llm_service import get_llm_service
 
-        llm_service = get_llm_service()
+            llm_service = get_llm_service()
 
-        with Session(engine) as session:
-            record = session.get(ReviewRecord, review_id)
-            if not record:
-                yield json.dumps({"type": "error", "message": "审核记录不存在"})
-                return
+            with Session(engine) as session:
+                record = session.get(ReviewRecord, review_id)
+                if not record:
+                    yield json.dumps({"type": "error", "message": "审核记录不存在"})
+                    return
+            bind_entities({"review_id": review_id, "rewrite_id": record.rewrite_id})
+            emit_obs_event(
+                level="INFO",
+                message="svc.review.stream.start",
+                entities={"review_id": review_id, "rewrite_id": record.rewrite_id},
+            )
 
-        try:
+            try:
             # 构造 Prompt
-            user_prompt = f"""请审核以下文章：
+                user_prompt = f"""请审核以下文章：
 
 ## 写作风格要求
 {style_context}
@@ -189,75 +202,81 @@ class ReviewService:
 
 请输出审核结果（JSON格式）："""
 
-            # 流式调用 LLM
-            full_response = ""
-            for chunk in llm_service.stream(
-                system_prompt=REVIEW_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
-            ):
-                # 清理思考过程标签
-                cleaned_chunk = chunk.replace("<think>", "").replace("</think>", "").strip()
-                if cleaned_chunk:
-                    full_response += cleaned_chunk
-                    yield json.dumps({"type": "content", "delta": cleaned_chunk})
+                full_response = ""
+                for chunk in llm_service.stream(
+                    system_prompt=REVIEW_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": user_prompt}],
+                ):
+                    cleaned_chunk = chunk.replace("<think>", "").replace("</think>", "").strip()
+                    if cleaned_chunk:
+                        full_response += cleaned_chunk
+                        yield json.dumps({"type": "content", "delta": cleaned_chunk})
 
-            # 解析 JSON 响应
-            try:
-                # 尝试提取 JSON（可能在 markdown 代码块中）
-                import re
-                json_match = re.search(r'\{[\s\S]*\}', full_response)
-                if json_match:
-                    feedback = json.loads(json_match.group())
-                else:
-                    feedback = {"error": "无法解析响应", "raw": full_response}
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON 解析失败: {e}, 原始响应: {full_response}")
-                feedback = {"error": f"JSON解析失败: {str(e)}", "raw": full_response}
+                try:
+                    import re
 
-            # 提取评分
-            ai_score = 10  # 默认满分
-            total_score = 50
-            if "quality_scores" in feedback:
-                scores = feedback["quality_scores"]
-                total_score = scores.get("total", 50)
-                # AI 味道评分 = 真实性得分（10分制）
-                ai_score = scores.get("authenticity", 10)
+                    json_match = re.search(r'\{[\s\S]*\}', full_response)
+                    if json_match:
+                        feedback = json.loads(json_match.group())
+                    else:
+                        feedback = {"error": "无法解析响应", "raw": full_response}
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON 解析失败: {e}, 原始响应: {full_response}")
+                    feedback = {"error": f"JSON解析失败: {str(e)}", "raw": full_response}
 
-            # 确定审核结果
-            passed = feedback.get("passed", True)
-            if total_score < 35:
-                passed = False
+                ai_score = 10
+                total_score = 50
+                if "quality_scores" in feedback:
+                    scores = feedback["quality_scores"]
+                    total_score = scores.get("total", 50)
+                    ai_score = scores.get("authenticity", 10)
 
-            # 保存结果
-            with Session(engine) as session:
-                record = session.get(ReviewRecord, review_id)
-                record.feedback = json.dumps(feedback, ensure_ascii=False)
-                record.ai_score = ai_score
-                record.total_score = total_score
-                record.result = "passed" if passed else "failed"
-                record.status = "completed"
-                record.updated_at = datetime.now()
-                session.commit()
+                passed = feedback.get("passed", True)
+                if total_score < 35:
+                    passed = False
 
-            yield json.dumps({
-                "type": "done",
-                "passed": passed,
-                "total_score": total_score,
-                "ai_score": ai_score,
-                "result": feedback.get("reason", "审核完成"),
-            })
-
-        except Exception as e:
-            logger.error(f"审核失败: {e}")
-            with Session(engine) as session:
-                record = session.get(ReviewRecord, review_id)
-                if record:
-                    record.status = "failed"
-                    record.error_message = str(e)
+                with Session(engine) as session:
+                    record = session.get(ReviewRecord, review_id)
+                    record.feedback = json.dumps(feedback, ensure_ascii=False)
+                    record.ai_score = ai_score
+                    record.total_score = total_score
+                    record.result = "passed" if passed else "failed"
+                    record.status = "completed"
                     record.updated_at = datetime.now()
                     session.commit()
 
-            yield json.dumps({"type": "error", "message": str(e)})
+                emit_obs_event(
+                    level="INFO",
+                    message="svc.review.stream.done",
+                    entities={"review_id": review_id, "rewrite_id": record.rewrite_id},
+                    payload={"passed": passed, "total_score": total_score},
+                )
+                yield json.dumps({
+                    "type": "done",
+                    "passed": passed,
+                    "total_score": total_score,
+                    "ai_score": ai_score,
+                    "result": feedback.get("reason", "审核完成"),
+                })
+
+            except Exception as e:
+                logger.error(f"审核失败: {e}")
+                emit_obs_event(
+                    level="ERROR",
+                    message="svc.review.stream.failed",
+                    entities={"review_id": review_id},
+                    error_code="E_REVIEW_FAILED",
+                    payload={"error": str(e)},
+                )
+                with Session(engine) as session:
+                    record = session.get(ReviewRecord, review_id)
+                    if record:
+                        record.status = "failed"
+                        record.error_message = str(e)
+                        record.updated_at = datetime.now()
+                        session.commit()
+
+                yield json.dumps({"type": "error", "message": str(e)})
 
     def get_review(self, review_id: int) -> Optional[ReviewRecord]:
         """获取审核记录"""

@@ -49,7 +49,10 @@ class Settings(BaseSettings):
     cover_prompt_llm_timeout_seconds: float = 12.0
 
     # GitHub 趋势
-    github_token: str = ""
+    github_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("GITHUB_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN"),
+    )
     github_trending_timezone: str = "Asia/Shanghai"
     github_trending_daily_hour: int = 9
     github_trending_daily_minute: int = 5
@@ -59,6 +62,14 @@ class Settings(BaseSettings):
 
     # 日志配置
     log_level: str = "INFO"
+
+    # 可观测性
+    obs_enabled: bool = True
+    obs_mode: str = "shadow"  # shadow|active
+    obs_retention_days: int = 14
+    obs_log_dir: str = "./data/observability"
+    obs_token: str = ""
+    obs_strict_dev: bool = True
 
 
 @lru_cache()

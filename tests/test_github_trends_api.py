@@ -80,3 +80,106 @@ def test_get_trends_response_shape(monkeypatch) -> None:
     assert len(data["items"]) == 1
     assert data["items"][0]["repo_full_name"] == "owner/repo"
     assert data["items"][0]["description_zh"] == "中文简介"
+
+
+def test_add_item_materials_supports_enhance_flag(monkeypatch) -> None:
+    from write_agent.api import github_trends as github_trends_api
+
+    called = {}
+
+    def fake_add_item_to_materials(week_key: str, repo_full_name: str, enhance: bool = True):
+        called["week_key"] = week_key
+        called["repo_full_name"] = repo_full_name
+        called["enhance"] = enhance
+        return {
+            "material_id": 7,
+            "created": False,
+            "updated": True,
+            "enrich": {
+                "attempted": True,
+                "cache_hit": False,
+                "degraded": True,
+                "degrade_reason": "missing_github_token",
+                "duration_ms": 3,
+                "fetched_at": "",
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(github_trends_api.service, "add_item_to_materials", fake_add_item_to_materials)
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/github-trends/materials/add-item",
+        json={
+            "week_key": "2026-W12",
+            "repo_full_name": "owner/repo",
+            "enhance": False,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["material_id"] == 7
+    assert data["updated"] is True
+    assert data["enrich"]["degraded"] is True
+    assert called == {
+        "week_key": "2026-W12",
+        "repo_full_name": "owner/repo",
+        "enhance": False,
+    }
+
+
+def test_build_item_rewrite_endpoint(monkeypatch) -> None:
+    from write_agent.api import github_trends as github_trends_api
+
+    called = {}
+
+    def fake_build_item_rewrite_markdown(
+        week_key: str,
+        repo_full_name: str,
+        enhance: bool = True,
+    ):
+        called["week_key"] = week_key
+        called["repo_full_name"] = repo_full_name
+        called["enhance"] = enhance
+        return {
+            "title": "owner/repo（2026-W12）",
+            "content": "prefill markdown",
+            "enrich": {
+                "attempted": True,
+                "cache_hit": True,
+                "degraded": False,
+                "degrade_reason": "",
+                "duration_ms": 2,
+                "fetched_at": "2026-03-22T09:00:00+08:00",
+                "sources": ["github_api", "readme"],
+            },
+        }
+
+    monkeypatch.setattr(
+        github_trends_api.service,
+        "build_item_rewrite_markdown",
+        fake_build_item_rewrite_markdown,
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/github-trends/rewrite/build-item",
+        json={
+            "week_key": "2026-W12",
+            "repo_full_name": "owner/repo",
+            "enhance": True,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["title"] == "owner/repo（2026-W12）"
+    assert data["content"] == "prefill markdown"
+    assert data["enrich"]["cache_hit"] is True
+    assert called == {
+        "week_key": "2026-W12",
+        "repo_full_name": "owner/repo",
+        "enhance": True,
+    }

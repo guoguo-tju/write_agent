@@ -66,9 +66,12 @@ pnpm-debug.log*
 # Local data and generated stores
 # ------------------------------
 /data/*.db
+/data/*.log
+/data/*.pid
 /data/chroma/
 /data/covers/
 /data/covers/**
+/data/observability/
 /src/data/*.db
 /src/data/chroma/
 *.sqlite3

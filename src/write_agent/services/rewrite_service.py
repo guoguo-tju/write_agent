@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 
 from write_agent.core import get_settings, get_logger
 from write_agent.models import RewriteRecord, WritingStyle
+from write_agent.observability import bind_entities, emit_obs_event, obs_scope
 from write_agent.services.llm_service import get_llm_service
 from write_agent.services.material_service import get_material_service
 
@@ -280,40 +281,53 @@ class RewriteService:
         Returns:
             RewriteRecord 对象
         """
-        source_article = (source_article or "").strip()
+        with obs_scope("SVC.REWRITE.CREATE", "WORKFLOW_NODE"):
+            source_article = (source_article or "").strip()
 
-        # 支持直接输入 URL（尤其是公众号链接）
-        if self._is_url_input(source_article):
-            logger.info(f"检测到 URL 输入，尝试抓取正文: {source_article}")
-            fetched_content = self._fetch_url_content(source_article)
-            if not fetched_content:
-                raise ValueError("无法从 URL 抓取内容，请粘贴原文后重试")
-            source_article = fetched_content
+            if self._is_url_input(source_article):
+                logger.info(f"检测到 URL 输入，尝试抓取正文: {source_article}")
+                fetched_content = self._fetch_url_content(source_article)
+                if not fetched_content:
+                    raise ValueError("无法从 URL 抓取内容，请粘贴原文后重试")
+                source_article = fetched_content
 
-        logger.info(f"创建改写任务: style_id={style_id}, target={target_words}字")
-
-        # 获取写作风格
-        with Session(engine) as session:
-            style = session.get(WritingStyle, style_id)
-            if not style:
-                raise ValueError(f"风格不存在: {style_id}")
-
-            # 创建改写记录
-            record = RewriteRecord(
-                source_article=source_article,
-                style_id=style_id,
-                target_words=target_words,
-                enable_rag=enable_rag,
-                rag_top_k=rag_top_k,
-                status="running",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
+            logger.info(f"创建改写任务: style_id={style_id}, target={target_words}字")
+            emit_obs_event(
+                level="INFO",
+                message="svc.rewrite.create.start",
+                payload={
+                    "style_id": style_id,
+                    "target_words": target_words,
+                    "enable_rag": enable_rag,
+                    "rag_top_k": rag_top_k,
+                },
             )
-            session.add(record)
-            session.commit()
-            session.refresh(record)
 
-            return record
+            with Session(engine) as session:
+                style = session.get(WritingStyle, style_id)
+                if not style:
+                    raise ValueError(f"风格不存在: {style_id}")
+
+                record = RewriteRecord(
+                    source_article=source_article,
+                    style_id=style_id,
+                    target_words=target_words,
+                    enable_rag=enable_rag,
+                    rag_top_k=rag_top_k,
+                    status="running",
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                )
+                session.add(record)
+                session.commit()
+                session.refresh(record)
+                bind_entities({"rewrite_id": record.id})
+                emit_obs_event(
+                    level="INFO",
+                    message="svc.rewrite.create.done",
+                    entities={"rewrite_id": record.id},
+                )
+                return record
 
     def rewrite(
         self,
@@ -332,166 +346,197 @@ class RewriteService:
         Yields:
             流式输出的内容块
         """
-        with Session(engine) as session:
-            record = session.get(RewriteRecord, rewrite_id)
-            if not record:
-                yield json.dumps({"type": "error", "message": "改写记录不存在"})
-                return
+        with obs_scope(
+            "SVC.REWRITE.STREAM",
+            "WORKFLOW_NODE",
+            entities={"rewrite_id": rewrite_id},
+        ):
+            with Session(engine) as session:
+                record = session.get(RewriteRecord, rewrite_id)
+                if not record:
+                    yield json.dumps({"type": "error", "message": "改写记录不存在"})
+                    return
 
-            style = session.get(WritingStyle, record.style_id)
-            if not style:
-                yield json.dumps({"type": "error", "message": "风格不存在"})
-                return
+                style = session.get(WritingStyle, record.style_id)
+                if not style:
+                    yield json.dumps({"type": "error", "message": "风格不存在"})
+                    return
 
-        try:
-            # 1. RAG 检索（如果启用）
-            rag_content = ""
-            rag_retrieved = []
-            if record.enable_rag:
-                yield json.dumps({"type": "progress", "step": "rag", "message": "检索相关素材..."})
-                rag_results = self.material_service.search_by_keywords(
-                    query=record.source_article[:500],
-                    top_k=record.rag_top_k,
-                )
-                if rag_results:
-                    rag_content = "\n\n".join([
-                        f"素材{i+1}：{r['content']}"
-                        for i, r in enumerate(rag_results)
-                    ])
-                    rag_retrieved = rag_results
-
-            # 2. 构建 Prompt
-            is_revision_mode = bool(
-                (revision_base_content or "").strip() and (review_feedback or "").strip()
+            bind_entities({"rewrite_id": rewrite_id})
+            emit_obs_event(
+                level="INFO",
+                message="svc.rewrite.stream.start",
+                entities={"rewrite_id": rewrite_id},
             )
-            yield json.dumps(
-                {
-                    "type": "progress",
-                    "step": "rewrite",
-                    "message": "根据主编意见修订中..." if is_revision_mode else "正在改写...",
-                }
-            )
+            try:
+                rag_content = ""
+                rag_retrieved = []
+                if record.enable_rag:
+                    yield json.dumps(
+                        {"type": "progress", "step": "rag", "message": "检索相关素材..."}
+                    )
+                    rag_results = self.material_service.search_by_keywords(
+                        query=record.source_article[:500],
+                        top_k=record.rag_top_k,
+                    )
+                    if rag_results:
+                        rag_content = "\n\n".join(
+                            [f"素材{i+1}：{r['content']}" for i, r in enumerate(rag_results)]
+                        )
+                        rag_retrieved = rag_results
 
-            # 计算字数范围 (±20%)
-            min_words = int(record.target_words * 0.8)
-            max_words = int(record.target_words * 1.2)
-
-            if is_revision_mode:
-                prompt = REWRITE_REVISION_PROMPT.format(
-                    style_description=style.style_description,
-                    target_words=record.target_words,
-                    min_words=min_words,
-                    max_words=max_words,
-                    source_article=record.source_article,
-                    previous_draft=(revision_base_content or "").strip(),
-                    review_feedback=(review_feedback or "").strip(),
-                    rag_content=rag_content or "（无相关素材）",
+                is_revision_mode = bool(
+                    (revision_base_content or "").strip()
+                    and (review_feedback or "").strip()
                 )
-            else:
-                prompt = REWRITE_PROMPT.format(
-                    style_description=style.style_description,
-                    target_words=record.target_words,
-                    min_words=min_words,
-                    max_words=max_words,
-                    source_article=record.source_article,
-                    rag_content=rag_content or "（无相关素材）",
+                yield json.dumps(
+                    {
+                        "type": "progress",
+                        "step": "rewrite",
+                        "message": "根据主编意见修订中..."
+                        if is_revision_mode
+                        else "正在改写...",
+                    }
                 )
 
-            # 3. 流式调用 LLM
-            stream_buffer = ""
-            in_think_block = False
-            final_content = ""
-            for chunk in self.llm_service.stream(
-                messages=[{"role": "user", "content": prompt}],
-                system_prompt="""你是一个专业的文章改写专家。
+                min_words = int(record.target_words * 0.8)
+                max_words = int(record.target_words * 1.2)
+
+                if is_revision_mode:
+                    prompt = REWRITE_REVISION_PROMPT.format(
+                        style_description=style.style_description,
+                        target_words=record.target_words,
+                        min_words=min_words,
+                        max_words=max_words,
+                        source_article=record.source_article,
+                        previous_draft=(revision_base_content or "").strip(),
+                        review_feedback=(review_feedback or "").strip(),
+                        rag_content=rag_content or "（无相关素材）",
+                    )
+                else:
+                    prompt = REWRITE_PROMPT.format(
+                        style_description=style.style_description,
+                        target_words=record.target_words,
+                        min_words=min_words,
+                        max_words=max_words,
+                        source_article=record.source_article,
+                        rag_content=rag_content or "（无相关素材）",
+                    )
+
+                stream_buffer = ""
+                in_think_block = False
+                final_content = ""
+                for chunk in self.llm_service.stream(
+                    messages=[{"role": "user", "content": prompt}],
+                    system_prompt="""你是一个专业的文章改写专家。
 1. 改写时保持原文核心观点，但使用指定的写作风格
 2. 直接输出文章内容，不要有任何思考过程
 3. 不要输出任何 XML 标签（如<think>）
 4. 输出纯文章内容，不要有额外说明""",
-            ):
-                stream_buffer += chunk
+                ):
+                    stream_buffer += chunk
 
-                while stream_buffer:
-                    if in_think_block:
-                        close_idx, close_tag = _find_first_tag(stream_buffer, THINK_CLOSE_TAGS)
-                        if close_idx == -1:
-                            if len(stream_buffer) > THINK_TAG_GUARD:
-                                stream_buffer = stream_buffer[-THINK_TAG_GUARD:]
-                            break
-                        stream_buffer = stream_buffer[close_idx + len(close_tag):]
-                        in_think_block = False
-                        continue
+                    while stream_buffer:
+                        if in_think_block:
+                            close_idx, close_tag = _find_first_tag(
+                                stream_buffer, THINK_CLOSE_TAGS
+                            )
+                            if close_idx == -1:
+                                if len(stream_buffer) > THINK_TAG_GUARD:
+                                    stream_buffer = stream_buffer[-THINK_TAG_GUARD:]
+                                break
+                            stream_buffer = stream_buffer[close_idx + len(close_tag) :]
+                            in_think_block = False
+                            continue
 
-                    open_idx, open_tag = _find_first_tag(stream_buffer, THINK_OPEN_TAGS)
-                    stray_close_idx, stray_close_tag = _find_first_tag(stream_buffer, THINK_CLOSE_TAGS)
+                        open_idx, open_tag = _find_first_tag(stream_buffer, THINK_OPEN_TAGS)
+                        stray_close_idx, stray_close_tag = _find_first_tag(
+                            stream_buffer, THINK_CLOSE_TAGS
+                        )
 
-                    # 兼容模型输出残缺标签：如果先看到关闭标签，丢弃其前内容和关闭标签本身。
-                    if stray_close_idx != -1 and (open_idx == -1 or stray_close_idx < open_idx):
-                        stream_buffer = stream_buffer[stray_close_idx + len(stray_close_tag):]
-                        continue
+                        if stray_close_idx != -1 and (
+                            open_idx == -1 or stray_close_idx < open_idx
+                        ):
+                            stream_buffer = stream_buffer[
+                                stray_close_idx + len(stray_close_tag) :
+                            ]
+                            continue
 
-                    if open_idx == -1:
-                        emit_len = max(0, len(stream_buffer) - THINK_TAG_GUARD)
-                        if emit_len == 0:
-                            break
+                        if open_idx == -1:
+                            emit_len = max(0, len(stream_buffer) - THINK_TAG_GUARD)
+                            if emit_len == 0:
+                                break
 
-                        visible_text = stream_buffer[:emit_len]
-                        stream_buffer = stream_buffer[emit_len:]
+                            visible_text = stream_buffer[:emit_len]
+                            stream_buffer = stream_buffer[emit_len:]
+
+                            visible_text = re.sub(r"\n{3,}", "\n\n", visible_text)
+                            if visible_text:
+                                final_content += visible_text
+                                yield json.dumps({"type": "content", "delta": visible_text})
+                            continue
+
+                        visible_text = stream_buffer[:open_idx]
+                        stream_buffer = stream_buffer[open_idx + len(open_tag) :]
+                        in_think_block = True
 
                         visible_text = re.sub(r"\n{3,}", "\n\n", visible_text)
                         if visible_text:
                             final_content += visible_text
                             yield json.dumps({"type": "content", "delta": visible_text})
-                        continue
 
-                    visible_text = stream_buffer[:open_idx]
-                    stream_buffer = stream_buffer[open_idx + len(open_tag):]
-                    in_think_block = True
+                if not in_think_block and stream_buffer:
+                    stream_buffer = re.sub(
+                        r"</?(?:think|thinking|langchain)>", "", stream_buffer
+                    )
+                    stream_buffer = re.sub(r"\n{3,}", "\n\n", stream_buffer)
+                    if stream_buffer:
+                        final_content += stream_buffer
+                        yield json.dumps({"type": "content", "delta": stream_buffer})
 
-                    visible_text = re.sub(r"\n{3,}", "\n\n", visible_text)
-                    if visible_text:
-                        final_content += visible_text
-                        yield json.dumps({"type": "content", "delta": visible_text})
+                final_content = self._ensure_image_placeholders(final_content)
+                actual_words = self._count_actual_words(final_content)
 
-            # flush 剩余可见文本
-            if not in_think_block and stream_buffer:
-                stream_buffer = re.sub(r"</?(?:think|thinking|langchain)>", "", stream_buffer)
-                stream_buffer = re.sub(r"\n{3,}", "\n\n", stream_buffer)
-                if stream_buffer:
-                    final_content += stream_buffer
-                    yield json.dumps({"type": "content", "delta": stream_buffer})
-
-            final_content = self._ensure_image_placeholders(final_content)
-            actual_words = self._count_actual_words(final_content)
-
-            # 4. 保存结果
-            with Session(engine) as session:
-                record = session.get(RewriteRecord, rewrite_id)
-                record.final_content = final_content
-                record.actual_words = actual_words
-                record.rag_retrieved = json.dumps(rag_retrieved, ensure_ascii=False)
-                record.status = "completed"
-                record.updated_at = datetime.now()
-                session.commit()
-
-            yield json.dumps({
-                "type": "done",
-                "final_content": final_content,
-                "actual_words": actual_words,
-            })
-
-        except Exception as e:
-            logger.error(f"改写失败: {e}")
-            # 更新状态为失败
-            with Session(engine) as session:
-                record = session.get(RewriteRecord, rewrite_id)
-                if record:
-                    record.status = "failed"
-                    record.error_message = str(e)
+                with Session(engine) as session:
+                    record = session.get(RewriteRecord, rewrite_id)
+                    record.final_content = final_content
+                    record.actual_words = actual_words
+                    record.rag_retrieved = json.dumps(rag_retrieved, ensure_ascii=False)
+                    record.status = "completed"
                     record.updated_at = datetime.now()
                     session.commit()
 
-            yield json.dumps({"type": "error", "message": str(e)})
+                emit_obs_event(
+                    level="INFO",
+                    message="svc.rewrite.stream.done",
+                    entities={"rewrite_id": rewrite_id},
+                    payload={"actual_words": actual_words},
+                )
+                yield json.dumps(
+                    {
+                        "type": "done",
+                        "final_content": final_content,
+                        "actual_words": actual_words,
+                    }
+                )
+            except Exception as e:
+                logger.error(f"改写失败: {e}")
+                emit_obs_event(
+                    level="ERROR",
+                    message="svc.rewrite.stream.failed",
+                    entities={"rewrite_id": rewrite_id},
+                    error_code="E_REWRITE_FAILED",
+                    payload={"error": str(e)},
+                )
+                with Session(engine) as session:
+                    record = session.get(RewriteRecord, rewrite_id)
+                    if record:
+                        record.status = "failed"
+                        record.error_message = str(e)
+                        record.updated_at = datetime.now()
+                        session.commit()
+
+                yield json.dumps({"type": "error", "message": str(e)})
 
     def get_rewrite(self, rewrite_id: int) -> Optional[RewriteRecord]:
         """获取改写记录"""

@@ -44,6 +44,22 @@
   align-items: flex-end;
 }
 
+.github-trends-enhance-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #b4c8bc;
+  padding: 8px 10px;
+  border: 1px solid #2a473a;
+  border-radius: 10px;
+  background: #11201a;
+}
+
+.github-trends-enhance-toggle input {
+  accent-color: #82c8a8;
+}
+
 .github-trends-week-select {
   display: grid;
   gap: 6px;
@@ -104,6 +120,11 @@
   border-radius: 10px;
   padding: 9px 12px;
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .github-trends-feedback.info {
@@ -119,6 +140,22 @@
 .github-trends-feedback.error {
   color: #f2b7b7;
   background: rgba(77, 30, 30, 0.5);
+}
+
+.github-trends-feedback-link {
+  border: 1px solid #3a5f4c;
+  border-radius: 999px;
+  background: rgba(16, 30, 24, 0.82);
+  color: #b8e3c7;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.github-trends-feedback-link:hover {
+  border-color: #7bc39d;
+  color: #d7f2e3;
 }
 
 .github-trends-table-wrap {

@@ -8,6 +8,7 @@ from sqlmodel import Session, create_engine, select
 
 from write_agent.core import get_settings, get_logger
 from write_agent.models import RewriteRecord, ReviewRecord
+from write_agent.observability import bind_entities, emit_obs_event, obs_scope
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -334,203 +335,225 @@ class WorkflowService:
         流式执行改写-审核闭环：
         首稿 -> 首审 -> (不通过) 二次修订 -> 二审 -> 结束
         """
-        from write_agent.services.rewrite_service import get_rewrite_service
-        from write_agent.services.review_service import get_review_service
-        from write_agent.models import WritingStyle
+        with obs_scope("SVC.WORKFLOW.RUN_STREAM", "WORKFLOW_NODE"):
+            from write_agent.services.rewrite_service import get_rewrite_service
+            from write_agent.services.review_service import get_review_service
+            from write_agent.models import WritingStyle
 
-        rewrite_service = get_rewrite_service()
-        review_service = get_review_service()
+            rewrite_service = get_rewrite_service()
+            review_service = get_review_service()
 
-        # 后端统一保护：最多允许一次自动打回，避免循环失控
-        retries = min(max(0, max_retries), AUTO_REVIEW_MAX_RETRIES)
-        total_rounds = retries + 1
+            retries = min(max(0, max_retries), AUTO_REVIEW_MAX_RETRIES)
+            total_rounds = retries + 1
 
-        with Session(engine) as session:
-            style = session.get(WritingStyle, style_id)
-            style_context = style.to_summary() if style else ""
+            with Session(engine) as session:
+                style = session.get(WritingStyle, style_id)
+                style_context = style.to_summary() if style else ""
 
-        # 首次创建改写记录，后续轮次复用同一 rewrite_id
-        rewrite_record = rewrite_service.create_rewrite(
-            source_article=source_article,
-            style_id=style_id,
-            target_words=target_words,
-            enable_rag=enable_rag,
-            rag_top_k=rag_top_k,
-        )
-        rewrite_id = rewrite_record.id
+            rewrite_record = rewrite_service.create_rewrite(
+                source_article=source_article,
+                style_id=style_id,
+                target_words=target_words,
+                enable_rag=enable_rag,
+                rag_top_k=rag_top_k,
+            )
+            rewrite_id = rewrite_record.id
+            bind_entities({"rewrite_id": rewrite_id})
+            emit_obs_event(
+                level="INFO",
+                message="svc.workflow.run_stream.start",
+                entities={"rewrite_id": rewrite_id},
+                payload={"total_rounds": total_rounds, "retries": retries},
+            )
 
-        current_content = ""
-        latest_review_id = 0
-        latest_review_feedback = ""
+            current_content = ""
+            latest_review_id = 0
+            latest_review_feedback = ""
 
-        for round_num in range(1, total_rounds + 1):
+            for round_num in range(1, total_rounds + 1):
             # ========== 改写阶段 ==========
-            yield {
-                "type": "stage",
-                "stage": "rewrite",
-                "round": round_num,
-                "rewrite_id": rewrite_id,
-                "retry_count": round_num - 1,
-                "max_retries": retries,
-                "message": "正在改写..." if round_num == 1 else "根据主编意见进行二次写稿...",
-            }
-
-            rewrite_kwargs = {}
-            if round_num > 1:
-                rewrite_kwargs = {
-                    "revision_base_content": current_content,
-                    "review_feedback": latest_review_feedback,
+                yield {
+                    "type": "stage",
+                    "stage": "rewrite",
+                    "round": round_num,
+                    "rewrite_id": rewrite_id,
+                    "retry_count": round_num - 1,
+                    "max_retries": retries,
+                    "message": "正在改写..." if round_num == 1 else "根据主编意见进行二次写稿...",
                 }
 
-            rewrite_done = False
-            actual_words = 0
-
-            for chunk in rewrite_service.rewrite(rewrite_id, **rewrite_kwargs):
-                data = json.loads(chunk)
-                event_type = data.get("type")
-
-                if event_type == "progress":
-                    yield {
-                        "type": "progress",
-                        "stage": "rewrite",
-                        "round": round_num,
-                        "rewrite_id": rewrite_id,
-                        "message": data.get("message", ""),
+                rewrite_kwargs = {}
+                if round_num > 1:
+                    rewrite_kwargs = {
+                        "revision_base_content": current_content,
+                        "review_feedback": latest_review_feedback,
                     }
-                    continue
 
-                if event_type == "content":
-                    yield {
-                        "type": "content",
-                        "stage": "rewrite",
-                        "round": round_num,
-                        "rewrite_id": rewrite_id,
-                        "delta": data.get("delta", ""),
-                    }
-                    continue
+                rewrite_done = False
+                actual_words = 0
 
-                if event_type == "done":
-                    rewrite_done = True
-                    current_content = str(data.get("final_content", ""))
-                    actual_words = int(data.get("actual_words", 0) or 0)
-                    break
+                for chunk in rewrite_service.rewrite(rewrite_id, **rewrite_kwargs):
+                    data = json.loads(chunk)
+                    event_type = data.get("type")
 
-                if event_type == "error":
+                    if event_type == "progress":
+                        yield {
+                            "type": "progress",
+                            "stage": "rewrite",
+                            "round": round_num,
+                            "rewrite_id": rewrite_id,
+                            "message": data.get("message", ""),
+                        }
+                        continue
+
+                    if event_type == "content":
+                        yield {
+                            "type": "content",
+                            "stage": "rewrite",
+                            "round": round_num,
+                            "rewrite_id": rewrite_id,
+                            "delta": data.get("delta", ""),
+                        }
+                        continue
+
+                    if event_type == "done":
+                        rewrite_done = True
+                        current_content = str(data.get("final_content", ""))
+                        actual_words = int(data.get("actual_words", 0) or 0)
+                        break
+
+                    if event_type == "error":
+                        yield {
+                            "type": "error",
+                            "stage": "rewrite",
+                            "round": round_num,
+                            "rewrite_id": rewrite_id,
+                            "message": data.get("message", "改写失败"),
+                        }
+                        return
+
+                if not rewrite_done:
                     yield {
                         "type": "error",
                         "stage": "rewrite",
                         "round": round_num,
                         "rewrite_id": rewrite_id,
-                        "message": data.get("message", "改写失败"),
+                        "message": "改写流程未正常完成",
                     }
                     return
 
-            if not rewrite_done:
+            # ========== 审核阶段 ==========
                 yield {
-                    "type": "error",
-                    "stage": "rewrite",
+                    "type": "stage",
+                    "stage": "review",
                     "round": round_num,
                     "rewrite_id": rewrite_id,
-                    "message": "改写流程未正常完成",
+                    "retry_count": round_num - 1,
+                    "max_retries": retries,
+                    "message": "主编审核中..." if round_num == 1 else "主编二次审核中...",
+                    "actual_words": actual_words,
                 }
-                return
 
-            # ========== 审核阶段 ==========
-            yield {
-                "type": "stage",
-                "stage": "review",
-                "round": round_num,
-                "rewrite_id": rewrite_id,
-                "retry_count": round_num - 1,
-                "max_retries": retries,
-                "message": "主编审核中..." if round_num == 1 else "主编二次审核中...",
-                "actual_words": actual_words,
-            }
+                review_record = review_service.create_review(
+                    rewrite_id=rewrite_id,
+                    content=current_content,
+                )
+                latest_review_id = review_record.id
+                bind_entities({"rewrite_id": rewrite_id, "review_id": latest_review_id, "round": round_num})
 
-            review_record = review_service.create_review(
-                rewrite_id=rewrite_id,
-                content=current_content,
-            )
-            latest_review_id = review_record.id
+                review_done = False
+                passed = False
+                total_score = 0
+                reason = ""
+                review_payload: dict = {}
 
-            review_done = False
-            passed = False
-            total_score = 0
-            reason = ""
-            review_payload: dict = {}
+                for chunk in review_service.review(latest_review_id, style_context):
+                    data = json.loads(chunk)
+                    event_type = data.get("type")
 
-            for chunk in review_service.review(latest_review_id, style_context):
-                data = json.loads(chunk)
-                event_type = data.get("type")
+                    if event_type == "done":
+                        review_done = True
+                        passed = bool(data.get("passed", False))
+                        total_score = int(data.get("total_score", 0) or 0)
+                        reason = str(data.get("result", "审核完成"))
+                        review_payload = data
+                        break
 
-                if event_type == "done":
-                    review_done = True
-                    passed = bool(data.get("passed", False))
-                    total_score = int(data.get("total_score", 0) or 0)
-                    reason = str(data.get("result", "审核完成"))
-                    review_payload = data
-                    break
+                    if event_type == "error":
+                        yield {
+                            "type": "error",
+                            "stage": "review",
+                            "round": round_num,
+                            "rewrite_id": rewrite_id,
+                            "review_id": latest_review_id,
+                            "message": data.get("message", "审核失败"),
+                        }
+                        return
 
-                if event_type == "error":
+                if not review_done:
                     yield {
                         "type": "error",
                         "stage": "review",
                         "round": round_num,
                         "rewrite_id": rewrite_id,
                         "review_id": latest_review_id,
-                        "message": data.get("message", "审核失败"),
+                        "message": "审核流程未正常完成",
                     }
                     return
 
-            if not review_done:
+                latest_review_feedback = json.dumps(review_payload, ensure_ascii=False)
+
                 yield {
-                    "type": "error",
+                    "type": "review_done",
                     "stage": "review",
                     "round": round_num,
                     "rewrite_id": rewrite_id,
                     "review_id": latest_review_id,
-                    "message": "审核流程未正常完成",
-                }
-                return
-
-            latest_review_feedback = json.dumps(review_payload, ensure_ascii=False)
-
-            yield {
-                "type": "review_done",
-                "stage": "review",
-                "round": round_num,
-                "rewrite_id": rewrite_id,
-                "review_id": latest_review_id,
-                "passed": passed,
-                "score": total_score,
-                "reason": reason,
-                "retry_count": round_num - 1,
-                "max_retries": retries,
-            }
-
-            if passed:
-                yield {
-                    "type": "done",
-                    "status": "passed",
-                    "passed": True,
-                    "rewrite_id": rewrite_id,
-                    "review_id": latest_review_id,
-                    "round": round_num,
+                    "passed": passed,
+                    "score": total_score,
+                    "reason": reason,
                     "retry_count": round_num - 1,
                     "max_retries": retries,
                 }
-                return
 
-        yield {
-            "type": "done",
-            "status": "reached_max_loops",
-            "passed": False,
-            "rewrite_id": rewrite_id,
-            "review_id": latest_review_id,
-            "round": total_rounds,
-            "retry_count": retries,
-            "max_retries": retries,
-        }
+                if passed:
+                    emit_obs_event(
+                        level="INFO",
+                        message="svc.workflow.run_stream.passed",
+                        entities={
+                            "rewrite_id": rewrite_id,
+                            "review_id": latest_review_id,
+                            "round": round_num,
+                        },
+                    )
+                    yield {
+                        "type": "done",
+                        "status": "passed",
+                        "passed": True,
+                        "rewrite_id": rewrite_id,
+                        "review_id": latest_review_id,
+                        "round": round_num,
+                        "retry_count": round_num - 1,
+                        "max_retries": retries,
+                    }
+                    return
+
+            emit_obs_event(
+                level="WARNING",
+                message="svc.workflow.run_stream.max_loops",
+                entities={"rewrite_id": rewrite_id, "review_id": latest_review_id},
+                error_code="E_WORKFLOW_MAX_LOOPS",
+            )
+            yield {
+                "type": "done",
+                "status": "reached_max_loops",
+                "passed": False,
+                "rewrite_id": rewrite_id,
+                "review_id": latest_review_id,
+                "round": total_rounds,
+                "retry_count": retries,
+                "max_retries": retries,
+            }
 
     def resume_with_manual_edit(
         self,

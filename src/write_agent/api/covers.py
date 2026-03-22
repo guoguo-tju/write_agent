@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from write_agent.observability import attach_obs_meta, bind_entities, obs_scope
 from write_agent.services.cover_service import get_cover_service
 from write_agent.services.rewrite_service import get_rewrite_service
 from write_agent.services.style_service import get_style_service
@@ -47,9 +48,15 @@ class _SafePromptVars(dict):
         return "{" + key + "}"
 
 
-def _sse_event(data: dict) -> str:
+def _sse_event(data: dict, *, entities: Optional[dict] = None) -> str:
     """格式化 SSE 事件。"""
-    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+    enriched = attach_obs_meta(
+        data,
+        node_key="API.COVERS.SSE_EVENT",
+        behavior_key="HTTP_SSE_STREAM",
+        entities=entities,
+    )
+    return f"data: {json.dumps(enriched, ensure_ascii=False)}\n\n"
 
 
 def _resolve_generation_size(size: str) -> str:
@@ -133,11 +140,15 @@ async def _generate_cover_events(request: GenerateCoverRequest):
     cover_service = get_cover_service()
     rewrite_service = get_rewrite_service()
     style_service = get_style_service()
+    bind_entities({"rewrite_id": request.rewrite_id})
 
     cover_id: Optional[int] = None
     try:
         # 1. 获取改写内容
-        yield _sse_event({"type": "start", "message": "正在获取文章内容..."})
+        yield _sse_event(
+            {"type": "start", "message": "正在获取文章内容...", "rewrite_id": request.rewrite_id},
+            entities={"rewrite_id": request.rewrite_id},
+        )
         rewrite = rewrite_service.get_rewrite(request.rewrite_id)
         if not rewrite:
             raise ValueError(f"改写记录不存在: {request.rewrite_id}")
@@ -152,11 +163,15 @@ async def _generate_cover_events(request: GenerateCoverRequest):
             # 优先级1: 用户自定义 Prompt
             prompt = request.custom_prompt
             yield _sse_event(
-                {"type": "prompt_done", "prompt": prompt, "source": "custom"}
+                {"type": "prompt_done", "prompt": prompt, "source": "custom", "rewrite_id": request.rewrite_id},
+                entities={"rewrite_id": request.rewrite_id},
             )
         elif request.style_id:
             # 优先级2: 使用封面风格模板
-            yield _sse_event({"type": "prompt", "message": "正在加载封面风格..."})
+            yield _sse_event(
+                {"type": "prompt", "message": "正在加载封面风格...", "rewrite_id": request.rewrite_id},
+                entities={"rewrite_id": request.rewrite_id},
+            )
             from write_agent.core.database import engine
             from sqlmodel import Session
             from write_agent.models.cover_style import CoverStyle
@@ -179,19 +194,28 @@ async def _generate_cover_events(request: GenerateCoverRequest):
                         "prompt": prompt,
                         "source": "style",
                         "style_name": cover_style.name,
+                        "rewrite_id": request.rewrite_id,
                     }
                 )
         else:
             # 优先级3: 自动生成 Prompt
-            yield _sse_event({"type": "style", "message": "正在分析写作风格..."})
-            writing_style = None
+            yield _sse_event(
+                {"type": "style", "message": "正在分析写作风格...", "rewrite_id": request.rewrite_id},
+                entities={"rewrite_id": request.rewrite_id},
+            )
             if writing_style_id:
                 writing_style = style_service.get_style_by_id(writing_style_id)
+            else:
+                writing_style = None
 
-            yield _sse_event({"type": "prompt", "message": "正在生成封面Prompt..."})
+            yield _sse_event(
+                {"type": "prompt", "message": "正在生成封面Prompt...", "rewrite_id": request.rewrite_id},
+                entities={"rewrite_id": request.rewrite_id},
+            )
             prompt = await cover_service.generate_prompt(content, writing_style)
             yield _sse_event(
-                {"type": "prompt_done", "prompt": prompt, "source": "auto"}
+                {"type": "prompt_done", "prompt": prompt, "source": "auto", "rewrite_id": request.rewrite_id},
+                entities={"rewrite_id": request.rewrite_id},
             )
 
         generation_size = _resolve_generation_size(request.size)
@@ -200,7 +224,10 @@ async def _generate_cover_events(request: GenerateCoverRequest):
         prompt_for_generation = _append_non_render_meta_guard(prompt_for_generation)
 
         # 3. 保存记录（generating状态）
-        yield _sse_event({"type": "saving", "message": "正在保存记录..."})
+        yield _sse_event(
+            {"type": "saving", "message": "正在保存记录...", "rewrite_id": request.rewrite_id},
+            entities={"rewrite_id": request.rewrite_id},
+        )
         cover = cover_service.save_cover(
             rewrite_id=request.rewrite_id,
             prompt=prompt_for_generation,
@@ -209,15 +236,23 @@ async def _generate_cover_events(request: GenerateCoverRequest):
         )
         cover_id = cover.id
 
+        bind_entities({"cover_id": cover_id, "rewrite_id": request.rewrite_id})
+
         # 4. 调用即梦 API 生成图片
-        yield _sse_event({"type": "generating", "message": "正在生成图片..."})
+        yield _sse_event(
+            {"type": "generating", "message": "正在生成图片...", "rewrite_id": request.rewrite_id, "cover_id": cover_id},
+            entities={"rewrite_id": request.rewrite_id, "cover_id": cover_id},
+        )
         result = await cover_service.generate_image(
             prompt=prompt_for_generation,
             size=generation_size,
             rewrite_id=request.rewrite_id,
         )
         persisted_image_url = result["image_url"]
-        yield _sse_event({"type": "saving", "message": "正在归档封面图片..."})
+        yield _sse_event(
+            {"type": "saving", "message": "正在归档封面图片...", "rewrite_id": request.rewrite_id, "cover_id": cover_id},
+            entities={"rewrite_id": request.rewrite_id, "cover_id": cover_id},
+        )
         try:
             if cover_id is not None:
                 persisted_image_url = await asyncio.to_thread(
@@ -253,7 +288,8 @@ async def _generate_cover_events(request: GenerateCoverRequest):
                 "requested_size": request.size,
                 "resolved_size": generation_size,
                 "prompt": prompt_for_generation,
-            }
+            },
+            entities={"rewrite_id": request.rewrite_id, "cover_id": cover_id},
         )
 
     except Exception as e:
@@ -267,7 +303,10 @@ async def _generate_cover_events(request: GenerateCoverRequest):
                 )
             except Exception:
                 logger.error("更新封面失败状态时发生异常", exc_info=True)
-        yield _sse_event({"type": "error", "message": str(e)})
+        yield _sse_event(
+            {"type": "error", "message": str(e), "rewrite_id": request.rewrite_id, "cover_id": cover_id},
+            entities={"rewrite_id": request.rewrite_id, "cover_id": cover_id},
+        )
 
 
 @router.post("")
@@ -277,15 +316,17 @@ async def generate_cover(request: GenerateCoverRequest):
 
     使用SSE流式返回生成进度
     """
-    return StreamingResponse(
-        _generate_cover_events(request),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    with obs_scope("API.COVERS.GENERATE", "HTTP_SSE_STREAM"):
+        bind_entities({"rewrite_id": request.rewrite_id})
+        return StreamingResponse(
+            _generate_cover_events(request),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
 
 @router.get("/stream")
@@ -296,21 +337,23 @@ async def generate_cover_stream(
     size: Literal["2.35:1", "1:1", "9:16", "3:4", "1k", "2k", "4k"] = "2.35:1",
 ):
     """封面生成 GET 兼容端点（SSE）。"""
-    request = GenerateCoverRequest(
-        rewrite_id=rewrite_id,
-        style_id=style_id,
-        custom_prompt=custom_prompt,
-        size=size,
-    )
-    return StreamingResponse(
-        _generate_cover_events(request),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    with obs_scope("API.COVERS.GENERATE", "HTTP_SSE_STREAM"):
+        bind_entities({"rewrite_id": rewrite_id})
+        request = GenerateCoverRequest(
+            rewrite_id=rewrite_id,
+            style_id=style_id,
+            custom_prompt=custom_prompt,
+            size=size,
+        )
+        return StreamingResponse(
+            _generate_cover_events(request),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
 
 @router.get("/by-rewrites")

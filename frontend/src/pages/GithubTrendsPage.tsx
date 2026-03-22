@@ -7,9 +7,11 @@ import { formatMessage, useLanguage } from "../i18n";
 import {
   addGithubTrendItemToMaterials,
   addGithubTrendWeekDigestToMaterials,
+  buildGithubTrendItemRewrite,
   getGithubTrendWeeks,
   getGithubTrends,
   refreshGithubTrends,
+  type GithubTrendEnrichMeta,
   type GithubTrendItem,
   type GithubTrendSnapshot,
   type GithubTrendWeekOption,
@@ -17,6 +19,11 @@ import {
 import "./GithubTrendsPage.css";
 
 type FeedbackKind = "info" | "success" | "error";
+type FeedbackState = {
+  kind: FeedbackKind;
+  message: string;
+  materialId?: number;
+};
 
 const calcCurrentWeekKey = () => {
   const now = new Date();
@@ -45,31 +52,6 @@ const pickDescription = (item: GithubTrendItem, lang: "zh" | "en"): string => {
     return translated || (hasChineseInOriginal ? original : "暂无简介");
   }
   return original || translated || "No description";
-};
-
-const markdownForItem = (
-  weekKey: string,
-  item: GithubTrendItem,
-  displayRank: number,
-) => {
-  const description = pickDescription(item, "zh");
-  return [
-    `# GitHub 周榜项目观察（${weekKey} #${displayRank}）`,
-    "",
-    `- 项目：${item.repo_full_name}`,
-    `- 作者：${item.owner}`,
-    `- 本周新增 Star：${item.stars_this_week}`,
-    `- 项目链接：${item.repo_url}`,
-    `- 项目简介：${description}`,
-    "",
-    "## 本周观察（可补充）",
-    "- 这个项目解决了什么问题？",
-    "- 为什么这周增长快？",
-    "",
-    "## 改写方向（可补充）",
-    "- 面向小白的解释路径",
-    "- 可落地实践建议",
-  ].join("\n");
 };
 
 const markdownForDigest = (weekKey: string, items: GithubTrendItem[]) => {
@@ -117,7 +99,8 @@ export const GithubTrendsPage: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isBulkAdding, setIsBulkAdding] = useState(false);
   const [rowActionKey, setRowActionKey] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<{ kind: FeedbackKind; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+  const [enhanceEnabled, setEnhanceEnabled] = useState(true);
 
   const effectiveWeekKey = snapshot?.week_key || selectedWeekKey;
   const sortedItems = useMemo(() => {
@@ -178,6 +161,41 @@ export const GithubTrendsPage: React.FC = () => {
     })();
   }, []);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("github_trends_enhance_enabled");
+      if (raw === "0") {
+        setEnhanceEnabled(false);
+      }
+    } catch {
+      // ignore localStorage read error
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("github_trends_enhance_enabled", enhanceEnabled ? "1" : "0");
+    } catch {
+      // ignore localStorage write error
+    }
+  }, [enhanceEnabled]);
+
+  const enrichSuffix = (meta?: GithubTrendEnrichMeta): string => {
+    if (!enhanceEnabled || !meta?.attempted) {
+      return "";
+    }
+    if (meta.degraded) {
+      if (meta.degrade_reason === "missing_github_token") {
+        return `（${trendsText.enrichTokenMissing}）`;
+      }
+      return `（${trendsText.enrichDegradedContinue}）`;
+    }
+    if (meta.cache_hit) {
+      return `（${trendsText.enrichCacheHit}）`;
+    }
+    return `（${trendsText.enrichFetched}）`;
+  };
+
   const handleSelectWeek = async (weekKey: string) => {
     setSelectedWeekKey(weekKey);
     await loadSnapshot(weekKey);
@@ -211,12 +229,18 @@ export const GithubTrendsPage: React.FC = () => {
       const result = await addGithubTrendItemToMaterials(
         effectiveWeekKey,
         item.repo_full_name,
+        enhanceEnabled,
       );
+      const tokenMissing = result.enrich?.degrade_reason === "missing_github_token";
       setFeedback({
-        kind: "success",
-        message: result.created
+        kind: tokenMissing ? "info" : "success",
+        message:
+          (result.created
           ? trendsText.addSuccessCreated
-          : trendsText.addSuccessExisting,
+          : result.updated
+            ? trendsText.addSuccessUpdated
+            : trendsText.addSuccessExisting) + enrichSuffix(result.enrich),
+        materialId: result.material_id,
       });
     } catch (error) {
       console.error("单项目入素材失败:", error);
@@ -244,19 +268,40 @@ export const GithubTrendsPage: React.FC = () => {
     }
   };
 
-  const handleRewriteItem = (item: GithubTrendItem, displayRank: number) => {
-    const prefillSource = markdownForItem(effectiveWeekKey, item, displayRank);
-    if (!prefillSource) {
-      setFeedback({ kind: "error", message: trendsText.rewritePayloadMissing });
-      return;
+  const handleRewriteItem = async (item: GithubTrendItem) => {
+    setRowActionKey(`rewrite-${item.repo_full_name}`);
+    try {
+      const payload = await buildGithubTrendItemRewrite(
+        effectiveWeekKey,
+        item.repo_full_name,
+        enhanceEnabled,
+      );
+      const prefillSource = payload.content?.trim();
+      if (!prefillSource) {
+        setFeedback({ kind: "error", message: trendsText.rewritePayloadMissing });
+        return;
+      }
+
+      if (payload.enrich?.degraded) {
+        setFeedback({
+          kind: "info",
+          message: `${trendsText.rewriteDegraded}${enrichSuffix(payload.enrich)}`,
+        });
+      }
+
+      navigate("/", {
+        state: {
+          prefillSource,
+          sourceType: "github-trend-item",
+          prefillTitle: tf(trendsText.rewriteTitleSingle, { name: item.repo_full_name }),
+        },
+      });
+    } catch (error) {
+      console.error("构建改写输入失败:", error);
+      setFeedback({ kind: "error", message: trendsText.rewriteBuildFailed });
+    } finally {
+      setRowActionKey(null);
     }
-    navigate("/", {
-      state: {
-        prefillSource,
-        sourceType: "github-trend-item",
-        prefillTitle: tf(trendsText.rewriteTitleSingle, { name: item.repo_full_name }),
-      },
-    });
   };
 
   const handleRewriteTop10 = () => {
@@ -334,6 +379,15 @@ export const GithubTrendsPage: React.FC = () => {
             >
               {trendsText.rewriteTop10}
             </button>
+
+            <label className="github-trends-enhance-toggle">
+              <input
+                type="checkbox"
+                checked={enhanceEnabled}
+                onChange={(event) => setEnhanceEnabled(event.target.checked)}
+              />
+              <span>{trendsText.enrichToggle}</span>
+            </label>
           </div>
         </section>
 
@@ -349,7 +403,16 @@ export const GithubTrendsPage: React.FC = () => {
 
         {feedback && (
           <section className={`github-trends-feedback ${feedback.kind}`}>
-            {feedback.message}
+            <span>{feedback.message}</span>
+            {feedback.materialId ? (
+              <button
+                type="button"
+                className="github-trends-feedback-link"
+                onClick={() => navigate(`/materials?material_id=${feedback.materialId}`)}
+              >
+                {trendsText.viewMaterialDetail}
+              </button>
+            ) : null}
           </section>
         )}
 
@@ -376,7 +439,11 @@ export const GithubTrendsPage: React.FC = () => {
               </thead>
               <tbody>
                 {sortedItems.map((item, index) => {
-                  const rowBusy = rowActionKey === `add-${item.repo_full_name}`;
+                  const rowBusy =
+                    rowActionKey === `add-${item.repo_full_name}`
+                    || rowActionKey === `rewrite-${item.repo_full_name}`;
+                  const addBusy = rowActionKey === `add-${item.repo_full_name}`;
+                  const rewriteBusy = rowActionKey === `rewrite-${item.repo_full_name}`;
                   const descriptionText = pickDescription(item, lang);
                   return (
                     <tr key={`${item.rank}-${item.repo_full_name}`}>
@@ -405,7 +472,7 @@ export const GithubTrendsPage: React.FC = () => {
                               void handleAddItem(item);
                             }}
                           >
-                            {rowBusy ? (
+                            {addBusy ? (
                               <>
                                 <Loader2 size={14} className="spin" />
                                 {text.home.loading}
@@ -417,9 +484,19 @@ export const GithubTrendsPage: React.FC = () => {
                           <button
                             type="button"
                             className="github-trends-primary-btn"
-                            onClick={() => handleRewriteItem(item, index + 1)}
+                            disabled={rowBusy}
+                            onClick={() => {
+                              void handleRewriteItem(item);
+                            }}
                           >
-                            {trendsText.goRewrite}
+                            {rewriteBusy ? (
+                              <>
+                                <Loader2 size={14} className="spin" />
+                                {text.home.loading}
+                              </>
+                            ) : (
+                              trendsText.goRewrite
+                            )}
                           </button>
                         </div>
                       </td>

@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-03-22
+
+### Added
+- 新增 GitHub 仓库增强缓存模型 `GitHubRepoEnrichmentCache`（按 `repo_full_name` 唯一），并在模型导出与建库脚本中注册。
+- 新增趋势改写行级构建接口：`POST /api/github-trends/rewrite/build-item`，支持后端统一产出改写预填内容与增强元数据。
+- 新增前端趋势增强元类型：`GithubTrendEnrichMeta`、`GithubTrendAddMaterialResponse`、`GithubTrendRewriteBuildResponse`。
+- 新增趋势回归测试：增强开关透传、改写构建接口、缓存命中与降级行为、素材增强更新幂等。
+- 新增全系统可观测性模块：`observability/registry.py|context.py|emitter.py|redaction.py|errors.py|middleware.py`。
+- 新增可观测检索 API：`GET /api/observability/events`、`GET /api/observability/traces/{trace_id}`、`GET /api/observability/nodes`、`GET /api/observability/nodes/{node_id}`。
+- 新增可观测事件索引模型 `ObservabilityEvent` 与结构化日志落盘（`data/observability/events-YYYY-MM-DD.log`）。
+- 新增可观测回归测试：`tests/test_observability_api.py`（trace 头、错误字段、SSE `obs`、检索与鉴权）。
+
+### Changed
+- 行级「素材库 / 改写」接入统一“仓库增强抓取”管线，支持 `enhance` 开关（默认开启）、缓存优先与失败降级不阻断主流程。
+- `POST /api/github-trends/materials/add-item` 扩展可选参数 `enhance`，返回中新增 `updated` 与 `enrich` 元数据。
+- 行级「改写」从前端本地拼接改为调用后端构建，增强成功时注入结构化摘要（项目定位、核心能力、快速上手、适用场景、风险/局限、最近动态），失败时自动回退周榜基础模板。
+- 趋势页新增“增强模式”开关（本地持久化），并在行级动作反馈中展示增强命中/降级状态。
+- 素材库单仓库保持单条记录：已有记录在“缺增强章节”或“缓存刷新成功”时原地更新增强章节。
+- API 全局接入 trace/request 贯穿：响应头统一返回 `X-Trace-Id` 与 `X-Request-Id`。
+- 全局错误响应扩展为可观测结构：`error_code/trace_id/request_id/node_id/node_key/behavior_id/behavior_key`（保留 `detail`）。
+- 改写/审核/工作流/封面等 SSE 事件统一携带 `obs` 元数据（`trace_id/node_id/behavior_id/event_id/ts`）。
+- 核心 API 与服务链路完成节点埋点（rewrites/reviews/materials/covers/styles/github_trends + LLM/RAG/workflow/scheduler）。
+- 前端错误处理支持展示可复制定位信息：`trace_id/node_id/error_code`（含 SSE 错误）。
+- `dev/test` 模式启用注册表强校验（未注册节点/行为直接报错），`prod` 自动降级 `unknown_*` 并告警。
+- `.env.example` 扩展 `OBS_ENABLED/OBS_MODE/OBS_LOG_DIR/OBS_RETENTION_DAYS/OBS_TOKEN/OBS_STRICT_DEV`。
+
+### Verification
+- `PYTHONPATH=src uv run pytest -q tests/test_github_trends_service.py tests/test_github_trends_api.py` 通过（12 passed）。
+- `cd frontend && npm run build` 通过。
+- `PYTHONPATH=src uv run pytest -q` 通过（74 passed）。
+
 ## 2026-03-20
 
 ### Fixed

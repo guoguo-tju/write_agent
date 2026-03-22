@@ -10,6 +10,8 @@ from .cover_record import CoverRecord
 from .cover_style import CoverStyle
 from .github_trending_snapshot import GitHubTrendingSnapshot
 from .github_trending_item import GitHubTrendingItem
+from .github_repo_enrichment_cache import GitHubRepoEnrichmentCache
+from .observability_event import ObservabilityEvent
 
 __all__ = [
     "WritingStyle",
@@ -21,4 +23,6 @@ __all__ = [
     "CoverStyle",
     "GitHubTrendingSnapshot",
     "GitHubTrendingItem",
+    "GitHubRepoEnrichmentCache",
+    "ObservabilityEvent",
 ]

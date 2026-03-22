@@ -12,8 +12,11 @@ import type {
   RagRetrievedItem,
   MaterialRetrieveResponse,
   GithubTrendItem,
+  GithubTrendEnrichMeta,
   GithubTrendSnapshot,
   GithubTrendWeekOption,
+  GithubTrendAddMaterialResponse,
+  GithubTrendRewriteBuildResponse,
   WorkflowSnapshot,
   WorkflowStepStatus,
 } from "../types";
@@ -32,8 +35,11 @@ export type {
   RagRetrievedItem,
   MaterialRetrieveResponse,
   GithubTrendItem,
+  GithubTrendEnrichMeta,
   GithubTrendSnapshot,
   GithubTrendWeekOption,
+  GithubTrendAddMaterialResponse,
+  GithubTrendRewriteBuildResponse,
   WorkflowSnapshot,
   WorkflowStepStatus,
 };
@@ -48,10 +54,56 @@ const api = axios.create({
   },
 });
 
+const appendObsHint = (
+  message: string,
+  obs?: {
+    trace_id?: string;
+    node_id?: string;
+    error_code?: string;
+  },
+): string => {
+  if (!obs) {
+    return message;
+  }
+  const traceId = (obs.trace_id || "").trim();
+  const nodeId = (obs.node_id || "").trim();
+  const errorCode = (obs.error_code || "").trim();
+  const parts: string[] = [];
+  if (traceId) {
+    parts.push(`trace_id=${traceId}`);
+  }
+  if (nodeId) {
+    parts.push(`node_id=${nodeId}`);
+  }
+  if (errorCode) {
+    parts.push(`error_code=${errorCode}`);
+  }
+  if (parts.length === 0) {
+    return message;
+  }
+  return `${message}（${parts.join(", ")}）`;
+};
+
 // 错误处理
 const handleError = (error: unknown): string => {
   if (error instanceof AxiosError) {
-    return error.response?.data?.detail || error.message;
+    const payload = (error.response?.data || {}) as {
+      detail?: string;
+      trace_id?: string;
+      node_id?: string;
+      error_code?: string;
+    };
+    const traceId =
+      payload.trace_id ||
+      String(error.response?.headers?.["x-trace-id"] || "").trim();
+    const nodeId = payload.node_id || "";
+    const errorCode = payload.error_code || "";
+    const base = payload.detail || error.message;
+    return appendObsHint(base, {
+      trace_id: traceId,
+      node_id: nodeId,
+      error_code: errorCode,
+    });
   }
   if (error instanceof Error) {
     return error.message;
@@ -65,6 +117,23 @@ const parseSseJson = (raw: string): Record<string, unknown> | null => {
   } catch {
     return null;
   }
+};
+
+const sseErrorWithObs = (
+  data: Record<string, unknown>,
+  fallback: string,
+): string => {
+  const message = String(data.message || fallback);
+  const obs = (data.obs || {}) as {
+    trace_id?: string;
+    node_id?: string;
+    error_code?: string;
+  };
+  return appendObsHint(message, {
+    trace_id: obs.trace_id || String(data.trace_id || ""),
+    node_id: obs.node_id || String(data.node_id || ""),
+    error_code: String(data.error_code || ""),
+  });
 };
 
 // ========== 风格管理 ==========
@@ -340,12 +409,14 @@ export const refreshGithubTrends = async (): Promise<GithubTrendSnapshot> => {
 export const addGithubTrendItemToMaterials = async (
   weekKey: string,
   repoFullName: string,
-): Promise<{ status: string; material_id: number; created: boolean }> => {
-  const response = await api.post<{ status: string; material_id: number; created: boolean }>(
+  enhance = true,
+): Promise<GithubTrendAddMaterialResponse> => {
+  const response = await api.post<GithubTrendAddMaterialResponse>(
     "/api/github-trends/materials/add-item",
     {
       week_key: weekKey,
       repo_full_name: repoFullName,
+      enhance,
     },
   );
   return response.data;
@@ -358,6 +429,22 @@ export const addGithubTrendWeekDigestToMaterials = async (
     "/api/github-trends/materials/add-week-digest",
     {
       week_key: weekKey,
+    },
+  );
+  return response.data;
+};
+
+export const buildGithubTrendItemRewrite = async (
+  weekKey: string,
+  repoFullName: string,
+  enhance = true,
+): Promise<GithubTrendRewriteBuildResponse> => {
+  const response = await api.post<GithubTrendRewriteBuildResponse>(
+    "/api/github-trends/rewrite/build-item",
+    {
+      week_key: weekKey,
+      repo_full_name: repoFullName,
+      enhance,
     },
   );
   return response.data;
@@ -412,7 +499,7 @@ export const rewriteWithStream = (
         eventSource.close();
         break;
       case "error":
-        onError(String(data.message || "Unknown error"));
+        onError(sseErrorWithObs(data, "Unknown error"));
         eventSource.close();
         break;
       default:
@@ -542,7 +629,7 @@ export const reviewWithStream = (
         eventSource.close();
         break;
       case "error":
-        onError(String(data.message || "Unknown error"));
+        onError(sseErrorWithObs(data, "Unknown error"));
         eventSource.close();
         break;
       default:
@@ -705,7 +792,12 @@ export const coverWithStream = (
     const data = parsed as unknown as SSEMessage;
 
     if (data.type === "error") {
-      onError(String(data.message || data.error || "Unknown error"));
+      onError(
+        sseErrorWithObs(
+          data as unknown as Record<string, unknown>,
+          String(data.error || "Unknown error"),
+        ),
+      );
       eventSource.close();
       return;
     }

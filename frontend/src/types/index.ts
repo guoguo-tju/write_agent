@@ -78,6 +78,31 @@ export interface GithubTrendWeekOption {
   has_archive: boolean;
 }
 
+export interface GithubTrendEnrichMeta {
+  attempted: boolean;
+  cache_hit: boolean;
+  degraded: boolean;
+  degrade_reason: string;
+  duration_ms: number;
+  fetched_at: string;
+  sources: string[];
+}
+
+export interface GithubTrendAddMaterialResponse {
+  status: string;
+  material_id: number;
+  created: boolean;
+  updated?: boolean;
+  enrich?: GithubTrendEnrichMeta;
+}
+
+export interface GithubTrendRewriteBuildResponse {
+  status: string;
+  title: string;
+  content: string;
+  enrich?: GithubTrendEnrichMeta;
+}
+
 // 改写记录
 export interface RewriteRecord {
   id: number;
@@ -160,6 +185,17 @@ export interface ApiResponse<T> {
   message?: string;
 }
 
+export interface ObservabilityMeta {
+  trace_id?: string;
+  request_id?: string;
+  node_id?: string;
+  node_key?: string;
+  behavior_id?: string;
+  behavior_key?: string;
+  event_id?: string;
+  ts?: string;
+}
+
 // SSE消息类型
 export interface SSEMessage {
   type:
@@ -182,6 +218,11 @@ export interface SSEMessage {
   image_url?: string;
   size?: string;
   prompt?: string;
+  obs?: ObservabilityMeta;
+  trace_id?: string;
+  node_id?: string;
+  behavior_id?: string;
+  error_code?: string;
 }
 
 // 工作流状态

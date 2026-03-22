@@ -9,6 +9,12 @@ from pydantic import BaseModel
 
 from write_agent.services.style_service import get_style_service
 from write_agent.core import get_logger
+from write_agent.observability import (
+    attach_obs_meta,
+    bind_entities,
+    emit_obs_event,
+    obs_scope,
+)
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/styles", tags=["写作风格"])
@@ -65,6 +71,15 @@ def _to_style_response(style) -> StyleResponse:
     )
 
 
+def _style_sse_with_obs(event: dict) -> str:
+    enriched = attach_obs_meta(
+        event,
+        node_key="API.STYLES.EXTRACT",
+        behavior_key="HTTP_SSE_STREAM",
+    )
+    return f"data: {json.dumps(enriched, ensure_ascii=False)}\n\n"
+
+
 @router.post("/extract", response_model=StyleResponse)
 async def extract_style(request: ExtractStyleRequest):
     """
@@ -72,35 +87,37 @@ async def extract_style(request: ExtractStyleRequest):
 
     用户输入多篇文章 → LLM 分析 → 提取风格 → 存储
     """
-    try:
-        articles = _normalize_articles(request.articles)
-        style_name = request.style_name.strip()
+    with obs_scope("API.STYLES.EXTRACT", "HTTP_SYNC"):
+        try:
+            articles = _normalize_articles(request.articles)
+            style_name = request.style_name.strip()
 
-        logger.info(f"提取风格: {style_name}, 文章数: {len(articles)}")
+            logger.info(f"提取风格: {style_name}, 文章数: {len(articles)}")
+            if not articles:
+                raise HTTPException(status_code=400, detail="请提供至少一篇参考文章")
+            if not style_name:
+                raise HTTPException(status_code=400, detail="请提供风格名称")
 
-        # 参数验证
-        if not articles:
-            raise HTTPException(status_code=400, detail="请提供至少一篇参考文章")
+            style = style_service.extract_style(
+                articles=articles,
+                style_name=style_name,
+                tags=request.tags,
+            )
+            bind_entities({"style_id": style.id})
+            emit_obs_event(
+                level="INFO",
+                message="api.styles.extract",
+                payload={"articles_count": len(articles)},
+            )
+            return _to_style_response(style)
 
-        if not style_name:
-            raise HTTPException(status_code=400, detail="请提供风格名称")
-
-        # 提取风格
-        style = style_service.extract_style(
-            articles=articles,
-            style_name=style_name,
-            tags=request.tags,
-        )
-
-        return _to_style_response(style)
-
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"提取风格失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        except HTTPException:
+            raise
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error(f"提取风格失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/extract/stream")
@@ -121,7 +138,7 @@ async def extract_style_stream(request: ExtractStyleRequest):
             style_name=style_name,
             tags=request.tags,
         ):
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            yield _style_sse_with_obs(event)
 
     return StreamingResponse(
         generate(),

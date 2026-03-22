@@ -7,6 +7,12 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from write_agent.observability import (
+    attach_obs_meta,
+    bind_entities,
+    emit_obs_event,
+    obs_scope,
+)
 from write_agent.services.rewrite_service import get_rewrite_service
 from write_agent.services.material_service import get_material_service
 
@@ -52,6 +58,25 @@ class RewriteListResponse(BaseModel):
 
 # ============ API 接口 ============
 
+
+def _sse_event(data: dict) -> str:
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _rewrite_sse_with_obs(raw_chunk: str, *, rewrite_id: int) -> str:
+    try:
+        payload = json.loads(raw_chunk)
+    except Exception:
+        payload = {"type": "content", "delta": raw_chunk}
+    payload.setdefault("rewrite_id", rewrite_id)
+    enriched = attach_obs_meta(
+        payload,
+        node_key="API.REWRITES.SSE_EVENT",
+        behavior_key="HTTP_SSE_STREAM",
+        entities={"rewrite_id": rewrite_id},
+    )
+    return _sse_event(enriched)
+
 @router.post("")
 async def create_rewrite(request: CreateRewriteRequest):
     """
@@ -59,48 +84,61 @@ async def create_rewrite(request: CreateRewriteRequest):
 
     使用流式响应，逐块返回改写内容
     """
-    try:
-        # 参数验证
-        if not request.source_article:
-            raise HTTPException(status_code=400, detail="请输入文章内容")
+    with obs_scope("API.REWRITES.CREATE", "HTTP_SYNC"):
+        try:
+            if not request.source_article:
+                raise HTTPException(status_code=400, detail="请输入文章内容")
 
-        if request.target_words < 100 or request.target_words > 10000:
-            raise HTTPException(status_code=400, detail="目标字数应在 100-10000 之间")
+            if request.target_words < 100 or request.target_words > 10000:
+                raise HTTPException(status_code=400, detail="目标字数应在 100-10000 之间")
 
-        # 创建改写记录
-        record = rewrite_service.create_rewrite(
-            source_article=request.source_article,
-            style_id=request.style_id,
-            target_words=request.target_words,
-            enable_rag=request.enable_rag,
-            rag_top_k=request.rag_top_k,
-        )
+            record = rewrite_service.create_rewrite(
+                source_article=request.source_article,
+                style_id=request.style_id,
+                target_words=request.target_words,
+                enable_rag=request.enable_rag,
+                rag_top_k=request.rag_top_k,
+            )
+            bind_entities({"rewrite_id": record.id})
+            emit_obs_event(
+                level="INFO",
+                message="api.rewrites.create",
+                entities={"rewrite_id": record.id},
+                payload={
+                    "style_id": request.style_id,
+                    "target_words": request.target_words,
+                    "enable_rag": request.enable_rag,
+                    "rag_top_k": request.rag_top_k,
+                },
+            )
 
-        # 流式输出
-        def generate():
-            # 先发送任务ID
-            yield f"data: {json.dumps({'type': 'start', 'task_id': record.id})}\n\n"
+            def generate():
+                yield _sse_event(
+                    attach_obs_meta(
+                        {"type": "start", "task_id": record.id, "rewrite_id": record.id},
+                        node_key="API.REWRITES.SSE_EVENT",
+                        behavior_key="HTTP_SSE_STREAM",
+                        entities={"rewrite_id": record.id},
+                    )
+                )
+                for chunk in rewrite_service.rewrite(record.id):
+                    yield _rewrite_sse_with_obs(chunk, rewrite_id=record.id)
 
-            # 执行改写
-            for chunk in rewrite_service.rewrite(record.id):
-                yield f"data: {chunk}\n\n"
-
-        return StreamingResponse(
-            generate(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
-
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            return StreamingResponse(
+                generate(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        except HTTPException:
+            raise
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("", response_model=RewriteListResponse)
@@ -162,48 +200,61 @@ async def rewrite_stream(
 
     使用流式响应，逐块返回改写内容
     """
-    try:
-        # 参数验证
-        if not source_article:
-            raise HTTPException(status_code=400, detail="请输入文章内容")
+    with obs_scope("API.REWRITES.STREAM", "HTTP_SSE_STREAM"):
+        try:
+            if not source_article:
+                raise HTTPException(status_code=400, detail="请输入文章内容")
 
-        if target_words < 100 or target_words > 10000:
-            raise HTTPException(status_code=400, detail="目标字数应在 100-10000 之间")
+            if target_words < 100 or target_words > 10000:
+                raise HTTPException(status_code=400, detail="目标字数应在 100-10000 之间")
 
-        # 创建改写记录
-        record = rewrite_service.create_rewrite(
-            source_article=source_article,
-            style_id=style_id,
-            target_words=target_words,
-            enable_rag=enable_rag,
-            rag_top_k=rag_top_k,
-        )
+            record = rewrite_service.create_rewrite(
+                source_article=source_article,
+                style_id=style_id,
+                target_words=target_words,
+                enable_rag=enable_rag,
+                rag_top_k=rag_top_k,
+            )
+            bind_entities({"rewrite_id": record.id})
+            emit_obs_event(
+                level="INFO",
+                message="api.rewrites.stream",
+                entities={"rewrite_id": record.id},
+                payload={
+                    "style_id": style_id,
+                    "target_words": target_words,
+                    "enable_rag": enable_rag,
+                    "rag_top_k": rag_top_k,
+                },
+            )
 
-        # 流式输出
-        def generate():
-            # 先发送任务ID
-            yield f"data: {json.dumps({'type': 'start', 'task_id': record.id})}\n\n"
+            def generate():
+                yield _sse_event(
+                    attach_obs_meta(
+                        {"type": "start", "task_id": record.id, "rewrite_id": record.id},
+                        node_key="API.REWRITES.SSE_EVENT",
+                        behavior_key="HTTP_SSE_STREAM",
+                        entities={"rewrite_id": record.id},
+                    )
+                )
+                for chunk in rewrite_service.rewrite(record.id):
+                    yield _rewrite_sse_with_obs(chunk, rewrite_id=record.id)
 
-            # 执行改写
-            for chunk in rewrite_service.rewrite(record.id):
-                yield f"data: {chunk}\n\n"
-
-        return StreamingResponse(
-            generate(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
-
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            return StreamingResponse(
+                generate(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        except HTTPException:
+            raise
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{rewrite_id:int}", response_model=RewriteResponse)

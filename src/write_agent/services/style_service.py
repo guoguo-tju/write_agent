@@ -8,6 +8,7 @@ from datetime import datetime
 
 from write_agent.core import get_settings, get_logger
 from write_agent.models.writing_style import WritingStyle
+from write_agent.observability import emit_obs_event, obs_scope
 from write_agent.services.llm_service import get_llm_service
 
 logger = get_logger(__name__)
@@ -192,27 +193,31 @@ class StyleExtractionService:
         Returns:
             WritingStyle 对象
         """
-        logger.info(f"开始提取写作风格: {style_name}")
+        with obs_scope("SVC.STYLE.EXTRACT", "WORKFLOW_NODE"):
+            logger.info(f"开始提取写作风格: {style_name}")
 
-        # 合并文章内容
-        combined_content = self._combine_articles(articles)
-        if not combined_content:
-            raise ValueError("请提供至少一篇有效参考文章")
+            combined_content = self._combine_articles(articles)
+            if not combined_content:
+                raise ValueError("请提供至少一篇有效参考文章")
+            emit_obs_event(
+                level="INFO",
+                message="svc.style.extract.start",
+                payload={"articles_count": len([a for a in articles if a and a.strip()])},
+            )
 
-        # 调用 LLM 提取风格
-        llm = get_llm_service()
-        raw_content = llm.chat(
-            messages=[{"role": "user", "content": STYLE_EXTRACTION_PROMPT.format(
-                article_content=combined_content
-            )}],
-            system_prompt="你是一个专业的写作风格建模专家。请严格按照JSON格式输出12个维度的分析结果，不要添加其他内容。确保所有JSON字段都是有效的。",
-        )
+            llm = get_llm_service()
+            raw_content = llm.chat(
+                messages=[{"role": "user", "content": STYLE_EXTRACTION_PROMPT.format(
+                    article_content=combined_content
+                )}],
+                system_prompt="你是一个专业的写作风格建模专家。请严格按照JSON格式输出12个维度的分析结果，不要添加其他内容。确保所有JSON字段都是有效的。",
+            )
 
-        # 清理 JSON（可能包含 markdown 标记）
-        style_json = self._clean_style_json(raw_content)
+            style_json = self._clean_style_json(raw_content)
 
-        logger.info(f"风格提取完成: {style_name}")
-        return self._save_style(style_name, style_json, combined_content, tags)
+            logger.info(f"风格提取完成: {style_name}")
+            emit_obs_event(level="INFO", message="svc.style.extract.done")
+            return self._save_style(style_name, style_json, combined_content, tags)
 
     def extract_style_stream(
         self,
@@ -226,60 +231,68 @@ class StyleExtractionService:
         Yields:
             SSE 事件字典
         """
-        logger.info(f"开始流式提取写作风格: {style_name}")
+        with obs_scope("SVC.STYLE.EXTRACT", "WORKFLOW_NODE"):
+            logger.info(f"开始流式提取写作风格: {style_name}")
 
-        combined_content = self._combine_articles(articles)
-        if not combined_content:
-            raise ValueError("请提供至少一篇有效参考文章")
+            combined_content = self._combine_articles(articles)
+            if not combined_content:
+                raise ValueError("请提供至少一篇有效参考文章")
 
-        llm = get_llm_service()
-        raw_content = ""
+            llm = get_llm_service()
+            raw_content = ""
 
-        yield {
-            "type": "start",
-            "style_name": style_name,
-            "articles_count": len([a for a in articles if a and a.strip()]),
-        }
-        yield {
-            "type": "progress",
-            "step": "analyzing",
-            "message": "正在分析参考文章并提取12维风格特征...",
-        }
-
-        try:
-            for chunk in llm.stream(
-                messages=[{"role": "user", "content": STYLE_EXTRACTION_PROMPT.format(
-                    article_content=combined_content
-                )}],
-                system_prompt=(
-                    "你是一个专业的写作风格建模专家。"
-                    "请严格按照JSON格式输出12个维度的分析结果，不要添加其他内容。"
-                    "确保所有JSON字段都是有效的。"
-                ),
-            ):
-                raw_content += chunk
-                yield {"type": "content", "delta": chunk}
-
-            style_json = self._clean_style_json(raw_content)
-            writing_style = self._save_style(
-                style_name=style_name,
-                style_json=style_json,
-                combined_content=combined_content,
-                tags=tags,
-            )
-
-            logger.info(f"风格提取完成: {style_name}")
             yield {
-                "type": "done",
-                "id": writing_style.id,
-                "name": writing_style.name,
-                "style_description": writing_style.style_description,
-                "tags": writing_style.tags,
-                "created_at": writing_style.created_at.isoformat(),
+                "type": "start",
+                "style_name": style_name,
+                "articles_count": len([a for a in articles if a and a.strip()]),
             }
-        except Exception as e:
-            logger.error(f"流式提取风格失败: {e}")
-            yield {"type": "error", "message": str(e)}
+            yield {
+                "type": "progress",
+                "step": "analyzing",
+                "message": "正在分析参考文章并提取12维风格特征...",
+            }
+
+            try:
+                for chunk in llm.stream(
+                    messages=[{"role": "user", "content": STYLE_EXTRACTION_PROMPT.format(
+                        article_content=combined_content
+                    )}],
+                    system_prompt=(
+                        "你是一个专业的写作风格建模专家。"
+                        "请严格按照JSON格式输出12个维度的分析结果，不要添加其他内容。"
+                        "确保所有JSON字段都是有效的。"
+                    ),
+                ):
+                    raw_content += chunk
+                    yield {"type": "content", "delta": chunk}
+
+                style_json = self._clean_style_json(raw_content)
+                writing_style = self._save_style(
+                    style_name=style_name,
+                    style_json=style_json,
+                    combined_content=combined_content,
+                    tags=tags,
+                )
+
+                logger.info(f"风格提取完成: {style_name}")
+                emit_obs_event(level="INFO", message="svc.style.extract.stream.done")
+                yield {
+                    "type": "done",
+                    "id": writing_style.id,
+                    "name": writing_style.name,
+                    "style_description": writing_style.style_description,
+                    "tags": writing_style.tags,
+                    "created_at": writing_style.created_at.isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"流式提取风格失败: {e}")
+                emit_obs_event(
+                    level="ERROR",
+                    message="svc.style.extract.stream.failed",
+                    error_code="E_STYLE_EXTRACT_FAILED",
+                    payload={"error": str(e)},
+                )
+                yield {"type": "error", "message": str(e)}
 
     def get_all_styles(self) -> list[WritingStyle]:
         """获取所有写作风格"""

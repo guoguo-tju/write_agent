@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Optional
 
 from write_agent.core import get_settings, get_logger
+from write_agent.observability import emit_obs_event, obs_scope
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -53,22 +54,29 @@ class LLMService:
         Returns:
             LLM 回复内容
         """
-        # 构建消息
-        langchain_messages = []
-        if system_prompt:
-            langchain_messages.append(SystemMessage(content=system_prompt))
+        with obs_scope("SVC.LLM.CHAT", "LLM_STREAM_CALL"):
+            emit_obs_event(
+                level="INFO",
+                message="svc.llm.chat.start",
+                payload={"messages_count": len(messages), "temperature": temperature},
+            )
+            langchain_messages = []
+            if system_prompt:
+                langchain_messages.append(SystemMessage(content=system_prompt))
 
-        for msg in messages:
-            if msg["role"] == "user":
-                langchain_messages.append(HumanMessage(content=msg["content"]))
-            elif msg["role"] == "assistant":
-                langchain_messages.append(
-                    {"type": "ai", "content": msg["content"]}
-                )
+            for msg in messages:
+                if msg["role"] == "user":
+                    langchain_messages.append(HumanMessage(content=msg["content"]))
+                elif msg["role"] == "assistant":
+                    langchain_messages.append({"type": "ai", "content": msg["content"]})
 
-        # 调用 LLM
-        response = self.llm.invoke(langchain_messages)
-        return response.content
+            response = self.llm.invoke(langchain_messages)
+            emit_obs_event(
+                level="INFO",
+                message="svc.llm.chat.done",
+                payload={"response_len": len(str(response.content or ""))},
+            )
+            return response.content
 
     def stream(
         self,
@@ -85,19 +93,30 @@ class LLMService:
         Yields:
             逐块返回的内容
         """
-        # 构建消息
-        langchain_messages = []
-        if system_prompt:
-            langchain_messages.append(SystemMessage(content=system_prompt))
+        with obs_scope("SVC.LLM.STREAM", "LLM_STREAM_CALL"):
+            emit_obs_event(
+                level="INFO",
+                message="svc.llm.stream.start",
+                payload={"messages_count": len(messages)},
+            )
+            langchain_messages = []
+            if system_prompt:
+                langchain_messages.append(SystemMessage(content=system_prompt))
 
-        for msg in messages:
-            if msg["role"] == "user":
-                langchain_messages.append(HumanMessage(content=msg["content"]))
+            for msg in messages:
+                if msg["role"] == "user":
+                    langchain_messages.append(HumanMessage(content=msg["content"]))
 
-        # 流式调用
-        for chunk in self.llm.stream(langchain_messages):
-            if chunk.content:
-                yield chunk.content
+            chunk_count = 0
+            for chunk in self.llm.stream(langchain_messages):
+                if chunk.content:
+                    chunk_count += 1
+                    yield chunk.content
+            emit_obs_event(
+                level="INFO",
+                message="svc.llm.stream.done",
+                payload={"chunk_count": chunk_count},
+            )
 
 
 # 全局单例

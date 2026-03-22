@@ -8,6 +8,12 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from write_agent.observability import (
+    attach_obs_meta,
+    bind_entities,
+    emit_obs_event,
+    obs_scope,
+)
 from write_agent.services.review_service import get_review_service
 from write_agent.services.workflow_service import get_workflow_service
 
@@ -80,61 +86,104 @@ class ManualEditResponse(BaseModel):
 
 # ============ API 接口 ============
 
+
+def _sse_event(data: dict) -> str:
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _review_sse_with_obs(
+    raw_chunk: str | dict,
+    *,
+    rewrite_id: Optional[int] = None,
+    review_id: Optional[int] = None,
+) -> str:
+    if isinstance(raw_chunk, dict):
+        payload = dict(raw_chunk)
+    else:
+        try:
+            payload = json.loads(raw_chunk)
+        except Exception:
+            payload = {"type": "content", "delta": str(raw_chunk)}
+    if rewrite_id is not None and "rewrite_id" not in payload:
+        payload["rewrite_id"] = rewrite_id
+    if review_id is not None and "review_id" not in payload:
+        payload["review_id"] = review_id
+    enriched = attach_obs_meta(
+        payload,
+        node_key="API.REVIEWS.SSE_EVENT",
+        behavior_key="HTTP_SSE_STREAM",
+        entities={
+            "rewrite_id": rewrite_id,
+            "review_id": review_id,
+            "round": payload.get("round"),
+            "stage": payload.get("stage"),
+        },
+    )
+    return _sse_event(enriched)
+
 @router.post("")
 async def create_review(request: CreateReviewRequest):
     """
     发起审核（SSE 流式输出）
     """
-    try:
-        # 获取改写内容
-        from write_agent.services.rewrite_service import get_rewrite_service
-        rewrite_service = get_rewrite_service()
-        rewrite_record = rewrite_service.get_rewrite(request.rewrite_id)
+    with obs_scope("API.REVIEWS.CREATE", "HTTP_SYNC"):
+        try:
+            from write_agent.services.rewrite_service import get_rewrite_service
 
-        if not rewrite_record:
-            raise HTTPException(status_code=404, detail="改写记录不存在")
+            rewrite_service = get_rewrite_service()
+            rewrite_record = rewrite_service.get_rewrite(request.rewrite_id)
+            if not rewrite_record:
+                raise HTTPException(status_code=404, detail="改写记录不存在")
+            if not rewrite_record.final_content:
+                raise HTTPException(status_code=400, detail="改写内容为空")
 
-        if not rewrite_record.final_content:
-            raise HTTPException(status_code=400, detail="改写内容为空")
+            record = review_service.create_review(
+                rewrite_id=request.rewrite_id,
+                content=rewrite_record.final_content,
+            )
+            bind_entities({"rewrite_id": request.rewrite_id, "review_id": record.id})
+            emit_obs_event(
+                level="INFO",
+                message="api.reviews.create",
+                entities={"rewrite_id": request.rewrite_id, "review_id": record.id},
+            )
 
-        # 创建审核记录
-        record = review_service.create_review(
-            rewrite_id=request.rewrite_id,
-            content=rewrite_record.final_content,
-        )
+            from sqlmodel import Session
+            from write_agent.models import WritingStyle
+            from write_agent.core.database import engine
 
-        # 获取风格上下文
-        from sqlmodel import Session
-        from write_agent.models import WritingStyle
-        from write_agent.core.database import engine
+            style_context = ""
+            with Session(engine) as session:
+                style = session.get(WritingStyle, rewrite_record.style_id)
+                if style:
+                    style_context = style.to_summary()
 
-        style_context = ""
-        with Session(engine) as session:
-            style = session.get(WritingStyle, rewrite_record.style_id)
-            if style:
-                style_context = style.to_summary()
+            def generate():
+                yield _review_sse_with_obs(
+                    {"type": "start", "review_id": record.id, "rewrite_id": request.rewrite_id},
+                    rewrite_id=request.rewrite_id,
+                    review_id=record.id,
+                )
+                for chunk in review_service.review(record.id, style_context):
+                    yield _review_sse_with_obs(
+                        chunk,
+                        rewrite_id=request.rewrite_id,
+                        review_id=record.id,
+                    )
 
-        # 流式输出
-        def generate():
-            yield f"data: {json.dumps({'type': 'start', 'review_id': record.id})}\n\n"
-
-            for chunk in review_service.review(record.id, style_context):
-                yield f"data: {chunk}\n\n"
-
-        return StreamingResponse(
-            generate(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            return StreamingResponse(
+                generate(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/workflow")
@@ -144,51 +193,72 @@ async def create_workflow(request: CreateWorkflowRequest):
 
     使用流式输出，每一步完成后立即返回
     """
-    try:
-        if not request.source_article or not request.source_article.strip():
-            raise HTTPException(status_code=400, detail="请输入文章内容")
-        if request.target_words < 100 or request.target_words > 10000:
-            raise HTTPException(status_code=400, detail="目标字数应在 100-10000 之间")
+    with obs_scope("API.REVIEWS.WORKFLOW", "HTTP_SSE_STREAM"):
+        try:
+            if not request.source_article or not request.source_article.strip():
+                raise HTTPException(status_code=400, detail="请输入文章内容")
+            if request.target_words < 100 or request.target_words > 10000:
+                raise HTTPException(status_code=400, detail="目标字数应在 100-10000 之间")
 
-        from sqlmodel import Session
-        from write_agent.models import WritingStyle
-        from write_agent.core.database import engine
+            from sqlmodel import Session
+            from write_agent.models import WritingStyle
+            from write_agent.core.database import engine
 
-        with Session(engine) as session:
-            style = session.get(WritingStyle, request.style_id)
-            if not style:
-                raise HTTPException(status_code=404, detail="风格不存在")
+            with Session(engine) as session:
+                style = session.get(WritingStyle, request.style_id)
+                if not style:
+                    raise HTTPException(status_code=404, detail="风格不存在")
 
-        def generate():
-            try:
-                # 流式执行工作流
-                for event in workflow_service.run_stream(
-                    source_article=request.source_article,
-                    style_id=request.style_id,
-                    target_words=request.target_words,
-                    enable_rag=request.enable_rag,
-                    rag_top_k=request.rag_top_k,
-                    max_retries=1,  # 后端统一控制：仅允许一次打回重写
-                ):
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            except Exception as e:
-                logger.error("工作流流式执行失败: %s", e, exc_info=True)
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+            emit_obs_event(
+                level="INFO",
+                message="api.reviews.workflow",
+                payload={
+                    "style_id": request.style_id,
+                    "target_words": request.target_words,
+                    "enable_rag": request.enable_rag,
+                    "rag_top_k": request.rag_top_k,
+                    "max_retries": 1,
+                },
+            )
 
-        return StreamingResponse(
-            generate(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+            def generate():
+                try:
+                    for event in workflow_service.run_stream(
+                        source_article=request.source_article,
+                        style_id=request.style_id,
+                        target_words=request.target_words,
+                        enable_rag=request.enable_rag,
+                        rag_top_k=request.rag_top_k,
+                        max_retries=1,
+                    ):
+                        rewrite_id = event.get("rewrite_id")
+                        review_id = event.get("review_id")
+                        if rewrite_id or review_id:
+                            bind_entities(
+                                {"rewrite_id": rewrite_id, "review_id": review_id}
+                            )
+                        yield _review_sse_with_obs(
+                            event,
+                            rewrite_id=rewrite_id,
+                            review_id=review_id,
+                        )
+                except Exception as e:
+                    logger.error("工作流流式执行失败: %s", e, exc_info=True)
+                    yield _review_sse_with_obs({"type": "error", "message": str(e)})
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            return StreamingResponse(
+                generate(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{review_id:int}", response_model=ReviewResponse)
@@ -239,56 +309,59 @@ async def review_stream(rewrite_id: int):
     """
     SSE 流式审核（GET 方法）
     """
-    try:
-        # 获取改写内容
-        from write_agent.services.rewrite_service import get_rewrite_service
-        rewrite_service = get_rewrite_service()
-        rewrite_record = rewrite_service.get_rewrite(rewrite_id)
+    with obs_scope("API.REVIEWS.CREATE", "HTTP_SSE_STREAM"):
+        try:
+            from write_agent.services.rewrite_service import get_rewrite_service
 
-        if not rewrite_record:
-            raise HTTPException(status_code=404, detail="改写记录不存在")
+            rewrite_service = get_rewrite_service()
+            rewrite_record = rewrite_service.get_rewrite(rewrite_id)
+            if not rewrite_record:
+                raise HTTPException(status_code=404, detail="改写记录不存在")
+            if not rewrite_record.final_content:
+                raise HTTPException(status_code=400, detail="改写内容为空")
 
-        if not rewrite_record.final_content:
-            raise HTTPException(status_code=400, detail="改写内容为空")
+            record = review_service.create_review(
+                rewrite_id=rewrite_id,
+                content=rewrite_record.final_content,
+            )
+            bind_entities({"rewrite_id": rewrite_id, "review_id": record.id})
 
-        # 创建审核记录
-        record = review_service.create_review(
-            rewrite_id=rewrite_id,
-            content=rewrite_record.final_content,
-        )
+            from sqlmodel import Session
+            from write_agent.models import WritingStyle
+            from write_agent.core.database import engine
 
-        # 获取风格上下文
-        from sqlmodel import Session
-        from write_agent.models import WritingStyle
-        from write_agent.core.database import engine
+            style_context = ""
+            with Session(engine) as session:
+                style = session.get(WritingStyle, rewrite_record.style_id)
+                if style:
+                    style_context = style.to_summary()
 
-        style_context = ""
-        with Session(engine) as session:
-            style = session.get(WritingStyle, rewrite_record.style_id)
-            if style:
-                style_context = style.to_summary()
+            def generate():
+                yield _review_sse_with_obs(
+                    {"type": "start", "review_id": record.id, "rewrite_id": rewrite_id},
+                    rewrite_id=rewrite_id,
+                    review_id=record.id,
+                )
+                for chunk in review_service.review(record.id, style_context):
+                    yield _review_sse_with_obs(
+                        chunk,
+                        rewrite_id=rewrite_id,
+                        review_id=record.id,
+                    )
 
-        # 流式输出
-        def generate():
-            yield f"data: {json.dumps({'type': 'start', 'review_id': record.id})}\n\n"
-
-            for chunk in review_service.review(record.id, style_context):
-                yield f"data: {chunk}\n\n"
-
-        return StreamingResponse(
-            generate(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            return StreamingResponse(
+                generate(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/manual-edit", response_model=ManualEditResponse)

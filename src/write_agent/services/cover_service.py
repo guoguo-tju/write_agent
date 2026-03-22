@@ -17,6 +17,7 @@ from write_agent.core import get_settings
 from write_agent.models.cover_record import CoverRecord
 from write_agent.models.rewrite_record import RewriteRecord
 from write_agent.models.writing_style import WritingStyle
+from write_agent.observability import bind_entities, emit_obs_event, obs_scope
 from write_agent.services.llm_service import get_llm_service
 
 logger = logging.getLogger(__name__)
@@ -161,30 +162,31 @@ class CoverService:
         Returns:
             生成的图片Prompt
         """
-        llm = get_llm_service()
+        with obs_scope("SVC.COVER.GENERATE_PROMPT", "WORKFLOW_NODE"):
+            llm = get_llm_service()
 
-        # 构建风格描述
-        style_description = ""
-        if style:
-            style_attrs = []
-            # 使用 WritingStyle 模型实际存在的属性
-            if style.name:
-                style_attrs.append(f"风格名称: {style.name}")
-            if style.style_description:
-                compressed = self._compress_style_description(style.style_description)
-                if compressed:
-                    style_attrs.append(f"风格描述: {compressed}")
-            if style.tags:
-                style_attrs.append(f"标签: {style.tags}")
-            if style_attrs:
-                style_description = "，".join(style_attrs)
+            style_description = ""
+            if style:
+                style_attrs = []
+                if style.name:
+                    style_attrs.append(f"风格名称: {style.name}")
+                if style.style_description:
+                    compressed = self._compress_style_description(style.style_description)
+                    if compressed:
+                        style_attrs.append(f"风格描述: {compressed}")
+                if style.tags:
+                    style_attrs.append(f"标签: {style.tags}")
+                if style_attrs:
+                    style_description = "，".join(style_attrs)
 
-        # 内容验证
-        if not content or len(content.strip()) < 10:
-            raise ValueError("文章内容过短，无法生成封面")
-
-        # 提取文章主题关键词
-        extract_prompt = f"""请从以下文章中提取3-5个核心主题关键词，这些关键词将用于生成封面图片。
+            if not content or len(content.strip()) < 10:
+                raise ValueError("文章内容过短，无法生成封面")
+            emit_obs_event(
+                level="INFO",
+                message="svc.cover.generate_prompt.start",
+                payload={"content_len": len(content), "has_style": bool(style)},
+            )
+            extract_prompt = f"""请从以下文章中提取3-5个核心主题关键词，这些关键词将用于生成封面图片。
 
 文章内容：
 {content[:2000]}
@@ -192,33 +194,31 @@ class CoverService:
 请直接输出关键词，用逗号分隔，不要包含其他内容。
 """
 
-        async def chat_with_timeout(payload_messages: list[dict]) -> str:
-            return await asyncio.wait_for(
-                asyncio.to_thread(
-                    llm.chat,
-                    messages=payload_messages,
-                ),
-                timeout=self.prompt_llm_timeout_seconds,
-            )
+            async def chat_with_timeout(payload_messages: list[dict]) -> str:
+                return await asyncio.wait_for(
+                    asyncio.to_thread(
+                        llm.chat,
+                        messages=payload_messages,
+                    ),
+                    timeout=self.prompt_llm_timeout_seconds,
+                )
 
-        # 先提取关键词（使用 to_thread 调用同步方法）
-        try:
-            keywords_response: str = await chat_with_timeout(
-                [{"role": "user", "content": extract_prompt}]
-            )
-            keywords = keywords_response.strip()
-        except asyncio.TimeoutError:
-            logger.warning(
-                "关键词提取超时（%.1fs），使用本地兜底策略",
-                self.prompt_llm_timeout_seconds,
-            )
-            keywords = self._extract_keywords_fallback(content)
-        except Exception as exc:
-            logger.warning("关键词提取失败，使用本地兜底策略: %s", exc)
-            keywords = self._extract_keywords_fallback(content)
+            try:
+                keywords_response: str = await chat_with_timeout(
+                    [{"role": "user", "content": extract_prompt}]
+                )
+                keywords = keywords_response.strip()
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "关键词提取超时（%.1fs），使用本地兜底策略",
+                    self.prompt_llm_timeout_seconds,
+                )
+                keywords = self._extract_keywords_fallback(content)
+            except Exception as exc:
+                logger.warning("关键词提取失败，使用本地兜底策略: %s", exc)
+                keywords = self._extract_keywords_fallback(content)
 
-        # 生成封面Prompt
-        cover_prompt = f"""请为文章生成一个适合的封面图片描述词（英文）。
+            cover_prompt = f"""请为文章生成一个适合的封面图片描述词（英文）。
 
 文章主题关键词：{keywords}
 {style_description}
@@ -234,30 +234,34 @@ class CoverService:
 直接输出Prompt，不要包含任何前缀或后缀。
 """
 
-        # 生成封面Prompt（使用 to_thread 调用同步方法）
-        try:
-            prompt_response: str = await chat_with_timeout(
-                [{"role": "user", "content": cover_prompt}]
-            )
-            generated_prompt = prompt_response.strip()
-        except asyncio.TimeoutError:
-            logger.warning(
-                "封面Prompt生成超时（%.1fs），使用本地兜底策略",
-                self.prompt_llm_timeout_seconds,
-            )
-            generated_prompt = self._build_prompt_fallback(
-                keywords=keywords,
-                style_description=style_description,
-            )
-        except Exception as exc:
-            logger.warning("封面Prompt生成失败，使用本地兜底策略: %s", exc)
-            generated_prompt = self._build_prompt_fallback(
-                keywords=keywords,
-                style_description=style_description,
-            )
-        logger.debug(f"封面Prompt已生成，长度: {len(generated_prompt)} 字符")
+            try:
+                prompt_response: str = await chat_with_timeout(
+                    [{"role": "user", "content": cover_prompt}]
+                )
+                generated_prompt = prompt_response.strip()
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "封面Prompt生成超时（%.1fs），使用本地兜底策略",
+                    self.prompt_llm_timeout_seconds,
+                )
+                generated_prompt = self._build_prompt_fallback(
+                    keywords=keywords,
+                    style_description=style_description,
+                )
+            except Exception as exc:
+                logger.warning("封面Prompt生成失败，使用本地兜底策略: %s", exc)
+                generated_prompt = self._build_prompt_fallback(
+                    keywords=keywords,
+                    style_description=style_description,
+                )
 
-        return generated_prompt
+            logger.debug(f"封面Prompt已生成，长度: {len(generated_prompt)} 字符")
+            emit_obs_event(
+                level="INFO",
+                message="svc.cover.generate_prompt.done",
+                payload={"prompt_len": len(generated_prompt)},
+            )
+            return generated_prompt
 
     async def generate_image(
         self,
@@ -276,53 +280,76 @@ class CoverService:
         Returns:
             包含image_url和size的字典
         """
-        url = f"{self.base_url}/api/v3/images/generations"
+        with obs_scope(
+            "SVC.COVER.GENERATE_IMAGE",
+            "EXTERNAL_HTTP_CALL",
+            entities={"rewrite_id": rewrite_id},
+        ):
+            bind_entities({"rewrite_id": rewrite_id})
+            url = f"{self.base_url}/api/v3/images/generations"
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }
-
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "size": size,
-            "response_format": "url",
-            "stream": False,
-            "watermark": False,
-            "sequential_image_generation": "disabled"
-        }
-
-        logger.info(f"调用即梦API生成图片，rewrite_id={rewrite_id}")
-
-        try:
-            response = await asyncio.to_thread(
-                requests.post,
-                url,
-                headers=headers,
-                json=payload,
-                timeout=120,
-            )
-            response.raise_for_status()
-
-            data = response.json()
-
-            if "error" in data:
-                raise Exception(f"API错误: {data['error']['message']}")
-
-            image_url = data["data"][0]["url"]
-            image_size = data["data"][0]["size"]
-
-            logger.info(f"图片生成成功: {image_url}")
-
-            return {
-                "image_url": image_url,
-                "size": image_size
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
             }
 
-        except Exception as e:
-            logger.error(f"图片生成失败: {e}")
-            raise
+            payload = {
+                "model": self.model,
+                "prompt": prompt,
+                "size": size,
+                "response_format": "url",
+                "stream": False,
+                "watermark": False,
+                "sequential_image_generation": "disabled"
+            }
+
+            logger.info(f"调用即梦API生成图片，rewrite_id={rewrite_id}")
+            emit_obs_event(
+                level="INFO",
+                message="svc.cover.generate_image.start",
+                entities={"rewrite_id": rewrite_id},
+                payload={"size": size, "prompt_len": len(prompt or "")},
+            )
+
+            try:
+                response = await asyncio.to_thread(
+                    requests.post,
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=120,
+                )
+                response.raise_for_status()
+
+                data = response.json()
+
+                if "error" in data:
+                    raise Exception(f"API错误: {data['error']['message']}")
+
+                image_url = data["data"][0]["url"]
+                image_size = data["data"][0]["size"]
+
+                logger.info(f"图片生成成功: {image_url}")
+                emit_obs_event(
+                    level="INFO",
+                    message="svc.cover.generate_image.done",
+                    entities={"rewrite_id": rewrite_id},
+                )
+                return {
+                    "image_url": image_url,
+                    "size": image_size
+                }
+
+            except Exception as e:
+                logger.error(f"图片生成失败: {e}")
+                emit_obs_event(
+                    level="ERROR",
+                    message="svc.cover.generate_image.failed",
+                    entities={"rewrite_id": rewrite_id},
+                    error_code="E_COVER_GENERATE_FAILED",
+                    payload={"error": str(e)},
+                )
+                raise
 
     def save_cover(
         self,
