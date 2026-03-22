@@ -2,7 +2,15 @@
 创建数据库表
 """
 from sqlmodel import SQLModel, create_engine
-from write_agent.models import WritingStyle, Material, RewriteRecord, ReviewRecord, ManualEditRecord
+from write_agent.models import (
+    WritingStyle,
+    Material,
+    RewriteRecord,
+    ReviewRecord,
+    ManualEditRecord,
+    GitHubTrendingSnapshot,
+    GitHubTrendingItem,
+)
 from write_agent.core import get_settings
 
 settings = get_settings()

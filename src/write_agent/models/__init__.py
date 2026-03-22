@@ -8,6 +8,8 @@ from .review_record import ReviewRecord
 from .manual_edit_record import ManualEditRecord
 from .cover_record import CoverRecord
 from .cover_style import CoverStyle
+from .github_trending_snapshot import GitHubTrendingSnapshot
+from .github_trending_item import GitHubTrendingItem
 
 __all__ = [
     "WritingStyle",
@@ -17,4 +19,6 @@ __all__ = [
     "ManualEditRecord",
     "CoverRecord",
     "CoverStyle",
+    "GitHubTrendingSnapshot",
+    "GitHubTrendingItem",
 ]

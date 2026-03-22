@@ -10,10 +10,23 @@
 ### Added
 - 新增回归测试 `tests/test_cover_prompt_timeout.py`：验证 LLM 慢响应/超时时封面 Prompt 会正确走本地兜底。
 - 新增回归测试 `tests/test_cover_style_description.py`：验证封面风格描述压缩逻辑（优先关键字段、避免超长噪声注入）。
+- 新增 GitHub 趋势能力：后端增加 `github_trending_snapshots/github_trending_items` 两张表与 `GitHubTrendingService`，支持周榜 Top10 抓取、每日快照、周归档（周一归档上一周最终快照）。
+- 新增 GitHub 趋势 API：`GET /api/github-trends`、`GET /api/github-trends/weeks`、`POST /api/github-trends/refresh`、`POST /api/github-trends/materials/add-item`、`POST /api/github-trends/materials/add-week-digest`。
+- 新增前端页面 `GitHub 趋势`（`/github-trends`）：周选择器、手动更新、行级/批量入素材、行级/周汇总去改写。
+- 新增回归测试 `tests/test_github_trends_service.py` 与 `tests/test_github_trends_api.py`。
+
+### Changed
+- 顶部导航增加 `GitHub 趋势` Tab（中英双语）。
+- 改写页支持消费路由 `state.prefillSource`，可从趋势页“一键去改写”后自动预填源文本（不自动触发改写）。
+- `main.py` 生命周期新增 GitHub 趋势内置调度器：默认 `Asia/Shanghai` 每日 `09:05` 自动抓取，支持与手动更新复用并发锁。
+- `.env.example` 增加 `GITHUB_TOKEN` 与趋势调度相关配置项。
 
 ### Verification
 - `PYTHONPATH=src pytest -q tests/test_cover_local_storage.py tests/test_cover_prompt_timeout.py tests/test_cover_style_description.py tests/test_cover_size_mapping.py` 通过（8 passed）。
 - 手工流式验收通过：`GET /api/covers/stream?rewrite_id=23&size=2.35:1` 可返回 `done`，且 `image_url` 为本地路径 `/media/covers/...`。
+- `PYTHONPATH=src pytest -q tests/test_api_regressions.py tests/test_github_trends_service.py tests/test_github_trends_api.py` 通过（29 passed）。
+- `cd frontend && npm run build` 通过。
+- 真实接口烟测通过：`POST /api/github-trends/refresh` 成功抓取 Top10；行级与周汇总入素材接口均返回成功，且重复调用可正确去重（`created=false`）。
 
 ## 2026-03-14
 

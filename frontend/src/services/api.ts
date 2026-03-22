@@ -11,6 +11,9 @@ import type {
   PaginatedResponse,
   RagRetrievedItem,
   MaterialRetrieveResponse,
+  GithubTrendItem,
+  GithubTrendSnapshot,
+  GithubTrendWeekOption,
   WorkflowSnapshot,
   WorkflowStepStatus,
 } from "../types";
@@ -28,6 +31,9 @@ export type {
   PaginatedResponse,
   RagRetrievedItem,
   MaterialRetrieveResponse,
+  GithubTrendItem,
+  GithubTrendSnapshot,
+  GithubTrendWeekOption,
   WorkflowSnapshot,
   WorkflowStepStatus,
 };
@@ -302,6 +308,58 @@ export const retrieveMaterials = async (
     query,
     top_k: topK,
   });
+  return response.data;
+};
+
+// ========== GitHub 趋势 ==========
+
+export const getGithubTrends = async (
+  weekKey?: string,
+): Promise<GithubTrendSnapshot> => {
+  const params = new URLSearchParams();
+  if (weekKey) {
+    params.set("week_key", weekKey);
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const response = await api.get<GithubTrendSnapshot>(
+    `/api/github-trends${suffix}`,
+  );
+  return response.data;
+};
+
+export const getGithubTrendWeeks = async (): Promise<GithubTrendWeekOption[]> => {
+  const response = await api.get<GithubTrendWeekOption[]>("/api/github-trends/weeks");
+  return response.data;
+};
+
+export const refreshGithubTrends = async (): Promise<GithubTrendSnapshot> => {
+  const response = await api.post<GithubTrendSnapshot>("/api/github-trends/refresh");
+  return response.data;
+};
+
+export const addGithubTrendItemToMaterials = async (
+  weekKey: string,
+  repoFullName: string,
+): Promise<{ status: string; material_id: number; created: boolean }> => {
+  const response = await api.post<{ status: string; material_id: number; created: boolean }>(
+    "/api/github-trends/materials/add-item",
+    {
+      week_key: weekKey,
+      repo_full_name: repoFullName,
+    },
+  );
+  return response.data;
+};
+
+export const addGithubTrendWeekDigestToMaterials = async (
+  weekKey: string,
+): Promise<{ status: string; material_id: number; created: boolean }> => {
+  const response = await api.post<{ status: string; material_id: number; created: boolean }>(
+    "/api/github-trends/materials/add-week-digest",
+    {
+      week_key: weekKey,
+    },
+  );
   return response.data;
 };
 

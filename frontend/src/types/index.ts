@@ -46,6 +46,38 @@ export interface MaterialRetrieveResponse {
   total: number;
 }
 
+export interface GithubTrendItem {
+  rank: number;
+  repo_full_name: string;
+  repo_name: string;
+  owner: string;
+  description?: string;
+  description_zh?: string;
+  repo_url: string;
+  stars_this_week: number;
+  language?: string;
+  total_stars?: number;
+}
+
+export interface GithubTrendSnapshot {
+  week_key: string;
+  requested_week_key: string;
+  snapshot_date: string;
+  captured_at: string;
+  is_weekly_archive: boolean;
+  is_stale: boolean;
+  is_refreshing: boolean;
+  fetch_error?: string;
+  items: GithubTrendItem[];
+}
+
+export interface GithubTrendWeekOption {
+  week_key: string;
+  latest_snapshot_date: string;
+  latest_captured_at: string;
+  has_archive: boolean;
+}
+
 // 改写记录
 export interface RewriteRecord {
   id: number;

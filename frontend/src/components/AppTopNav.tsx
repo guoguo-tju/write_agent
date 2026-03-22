@@ -6,6 +6,10 @@ import "./AppTopNav.css";
 
 export const AppTopNav: React.FC = () => {
   const { lang, setLang, text } = useLanguage();
+  const LEFT_PINNED_ITEM = {
+    to: "/github-trends",
+    label: text.nav.links.githubTrends,
+  } as const;
   const NAV_ITEMS = [
     { to: "/", label: text.nav.links.rewrite },
     { to: "/styles", label: text.nav.links.styles },
@@ -18,11 +22,22 @@ export const AppTopNav: React.FC = () => {
   return (
     <div className="app-top-shell">
       <header className="app-top-nav">
-        <div className="app-top-nav-brand">
-          <div className="app-top-nav-logo">
-            <PenTool size={16} />
+        <div className="app-top-nav-left">
+          <div className="app-top-nav-brand">
+            <div className="app-top-nav-logo">
+              <PenTool size={16} />
+            </div>
+            <span>砚雀 (YanQue)</span>
           </div>
-          <span>砚雀 (YanQue)</span>
+
+          <NavLink
+            to={LEFT_PINNED_ITEM.to}
+            className={({ isActive }) =>
+              `app-top-nav-item app-top-nav-item-left${isActive ? " active" : ""}`
+            }
+          >
+            {LEFT_PINNED_ITEM.label}
+          </NavLink>
         </div>
 
         <div className="app-top-nav-right">

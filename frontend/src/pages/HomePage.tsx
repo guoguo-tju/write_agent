@@ -10,7 +10,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { AppTopNav, Button, Input, Pagination, Textarea } from "../components";
 import { formatMessage, useLanguage } from "../i18n";
 import {
@@ -93,6 +93,7 @@ const parseRagRetrieved = (
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { lang, text } = useLanguage();
   const homeText = text.home;
   const locale = lang === "zh" ? "zh-CN" : "en-US";
@@ -157,6 +158,30 @@ export const HomePage: React.FC = () => {
       workflowAbortRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const state = location.state as
+      | {
+          prefillSource?: string;
+        }
+      | undefined;
+    const prefillSource = state?.prefillSource?.trim();
+    if (!prefillSource) {
+      return;
+    }
+
+    setSourceContent(prefillSource);
+    navigate(
+      {
+        pathname: location.pathname,
+        search: location.search,
+      },
+      {
+        replace: true,
+        state: {},
+      },
+    );
+  }, [location.pathname, location.search, location.state, navigate]);
 
   useEffect(() => {
     if (!showMaterialPicker) {

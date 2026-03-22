@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     cover_media_url_prefix: str = "/media/covers"
     cover_prompt_llm_timeout_seconds: float = 12.0
 
+    # GitHub 趋势
+    github_token: str = ""
+    github_trending_timezone: str = "Asia/Shanghai"
+    github_trending_daily_hour: int = 9
+    github_trending_daily_minute: int = 5
+
     # 数据库配置
     database_url: str = "sqlite:///./data/acceptance_write_agent.db"
 
