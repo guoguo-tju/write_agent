@@ -38,6 +38,10 @@ A full-stack AI writing agent for style extraction, rewriting, review, cover gen
 
 ![Layout Page](docs/screenshots/layout-page-v2.png)
 
+7. **GitHub Trends**: captures weekly Top10 repositories by star growth over the last 7 days, with week selection and manual refresh. Each repo can be sent to Materials or Rewrite in one click, connecting topic discovery to the writing workflow.
+
+![GitHub Trends Page](docs/screenshots/github-trends-page-v2.png)
+
 ## Quick Start
 
 ### 1. Clone and install
@@ -59,6 +63,7 @@ Edit `.env` with:
 
 - Required: `OPENAI_API_KEY`, `VOLCENGINE_API_KEY`
 - Optional: `SILICONFLOW_API_KEY` (for writing-time RAG embedding/retrieval and citation display)
+- Optional: `GITHUB_TOKEN` (or `GITHUB_PERSONAL_ACCESS_TOKEN`) for richer GitHub trends enrichment context.
 
 ### 3. Start backend
 
@@ -120,6 +125,10 @@ Use `http://127.0.0.1:5173` for frontend and `http://127.0.0.1:8000` for backend
 ### 5) Why are cover images not in GitHub?
 
 Cover images are runtime assets stored locally under `./data/covers`, and this directory is intentionally ignored by Git.
+
+### 6) Why does GitHub Trends show a missing token / degraded reminder?
+
+It means the system automatically fell back to the baseline fetch flow and did not block core actions. Configure `GITHUB_TOKEN` (or `GITHUB_PERSONAL_ACCESS_TOKEN`) to get richer enrichment context.
 
 ## License
 

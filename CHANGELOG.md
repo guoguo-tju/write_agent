@@ -30,6 +30,8 @@
 - 前端错误处理支持展示可复制定位信息：`trace_id/node_id/error_code`（含 SSE 错误）。
 - `dev/test` 模式启用注册表强校验（未注册节点/行为直接报错），`prod` 自动降级 `unknown_*` 并告警。
 - `.env.example` 扩展 `OBS_ENABLED/OBS_MODE/OBS_LOG_DIR/OBS_RETENTION_DAYS/OBS_TOKEN/OBS_STRICT_DEV`。
+- 中英文 README 补充 GitHub 趋势流程说明与页面截图（`docs/screenshots/github-trends-page-v2.png`），并在 Quick Start 增加 `GITHUB_TOKEN`（或 `GITHUB_PERSONAL_ACCESS_TOKEN`）可选配置说明。
+- 中英文 README FAQ 各新增 1 条 GitHub 趋势常见问题：未配置 token 时的降级提示含义。
 
 ### Verification
 - `rg -n "AGENTS.md|development-spec-v1|verification-checklist" README.md README.zh-CN.md docs/specs/*.md` 可命中全部入口链接与规范文件。
@@ -37,6 +39,7 @@
 - `PYTHONPATH=src uv run pytest -q tests/test_github_trends_service.py tests/test_github_trends_api.py` 通过（12 passed）。
 - `cd frontend && npm run build` 通过。
 - `PYTHONPATH=src uv run pytest -q` 通过（74 passed）。
+- `rg -n "GitHub 趋势|GitHub Trends|github-trends-page-v2\\.png|GITHUB_TOKEN|GITHUB_PERSONAL_ACCESS_TOKEN|degraded" README.zh-CN.md README.md` 可命中新增说明、截图引用、Quick Start 与 FAQ 条目。
 
 ## 2026-03-20
 

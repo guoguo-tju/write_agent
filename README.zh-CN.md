@@ -38,6 +38,10 @@
 
 ![排版页面](docs/screenshots/layout-page-v2.png)
 
+7. **GitHub 趋势**：按周抓取过去一周 GitHub Star 新增最多的 Top10 项目，支持周选择与手动刷新。每条项目可一键加入素材库或进入改写，打通“发现选题 -> 沉淀素材 -> 进入创作”。
+
+![GitHub 趋势页面](docs/screenshots/github-trends-page-v2.png)
+
 ## 快速开始
 
 ### 1. 拉代码并安装依赖
@@ -59,6 +63,7 @@ cp .env.example .env
 
 - 必填：`OPENAI_API_KEY`、`VOLCENGINE_API_KEY`
 - 可选：`SILICONFLOW_API_KEY`（用于写作阶段的 RAG 向量化检索与引用展示）
+- 可选：`GITHUB_TOKEN`（或 `GITHUB_PERSONAL_ACCESS_TOKEN`），用于 GitHub 趋势增强抓取，信息更完整。
 
 ### 3. 启动后端
 
@@ -121,6 +126,10 @@ npm run dev
 ### 5）为什么 GitHub 里看不到封面图片？
 
 封面图片属于运行时本地资产，默认保存在 `./data/covers`，该目录已被 Git 忽略，不会上传到仓库。
+
+### 6）GitHub 趋势提示“未配置 GITHUB_TOKEN，已降级”是什么意思？
+
+表示系统已自动回退到基础抓取流程，不会阻断“入素材/去改写”等主流程；配置 `GITHUB_TOKEN`（或 `GITHUB_PERSONAL_ACCESS_TOKEN`）后可获得更完整的增强信息。
 
 ## 许可证
 
