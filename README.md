@@ -1,5 +1,7 @@
 # Write Agent
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 A full-stack AI writing agent for style extraction, rewriting, review, cover generation, and publishing-ready WeChat layout (FastAPI + React/Vite).
 
 [中文文档](./docs/README.zh-CN.md)
@@ -132,4 +134,4 @@ It means the system automatically fell back to the baseline fetch flow and did n
 
 ## License
 
-MIT License.
+[MIT License](./LICENSE)

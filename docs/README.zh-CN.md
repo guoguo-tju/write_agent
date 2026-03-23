@@ -1,5 +1,7 @@
 # Write Agent
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
+
 一个覆盖风格提取、改写、审核、封面生成与公众号排版发布的全栈写作智能体（FastAPI + React/Vite）。
 
 [English](../README.md)
@@ -133,4 +135,4 @@ npm run dev
 
 ## 许可证
 
-MIT License。
+[MIT License](../LICENSE)。
