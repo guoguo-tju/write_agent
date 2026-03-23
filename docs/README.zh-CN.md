@@ -2,7 +2,7 @@
 
 一个覆盖风格提取、改写、审核、封面生成与公众号排版发布的全栈写作智能体（FastAPI + React/Vite）。
 
-[English](./README.md)
+[English](../README.md)
 
 ## 亮点与业务价值
 
@@ -16,31 +16,31 @@
 
 1. **改写**：输入原文、选择风格、设置目标长度（预设 `100-8000`，默认 `500`）并流式输出。首页会实时提示闭环阶段（首次写稿、首次主编审核、二次写稿、二次审核、最终状态）。顶部导航支持全站 `CN / EN` 切换，选择会持久化到 `localStorage`（`write_agent_lang`）。
 
-![改写页面](docs/screenshots/rewrite-page-v2.png)
+![改写页面](./screenshots/rewrite-page-v2.png)
 
 2. **风格管理**：创建并复用写作风格 DNA。
 
-![风格页面](docs/screenshots/styles-page-v2.png)
+![风格页面](./screenshots/styles-page-v2.png)
 
 3. **素材库（RAG）**：收集素材、检索测试、写作时引用。
 
-![素材库页面](docs/screenshots/materials-page-v2.png)
+![素材库页面](./screenshots/materials-page-v2.png)
 
 4. **审核**：查看改写结果并支持人工二次编辑。
 
-![审核页面](docs/screenshots/reviews-page-v2.png)
+![审核页面](./screenshots/reviews-page-v2.png)
 
 5. **封面生成**：基于改写结果按多种模式和比例生成封面。
 
-![封面页面](docs/screenshots/covers-page-v2.png)
+![封面页面](./screenshots/covers-page-v2.png)
 
 6. **排版**：可从改写/审核/封面页一键“去排版”，携带 `rewrite_id` 自动导入正文与封面（若存在），并在 `/layout` 做主题切换、实时预览和公众号复制。
 
-![排版页面](docs/screenshots/layout-page-v2.png)
+![排版页面](./screenshots/layout-page-v2.png)
 
 7. **GitHub 趋势**：按周抓取过去一周 GitHub Star 新增最多的 Top10 项目，支持周选择与手动刷新。每条项目可一键加入素材库或进入改写，打通“发现选题 -> 沉淀素材 -> 进入创作”。
 
-![GitHub 趋势页面](docs/screenshots/github-trends-page-v2.png)
+![GitHub 趋势页面](./screenshots/github-trends-page-v2.png)
 
 ## 快速开始
 
@@ -101,9 +101,9 @@ npm run dev
 
 ## 开发规范入口
 
-- AI 迭代入口：[`AGENTS.md`](./AGENTS.md)
-- 全栈开发规范：[`docs/specs/development-spec-v1.md`](./docs/specs/development-spec-v1.md)
-- 验收清单：[`docs/specs/verification-checklist.md`](./docs/specs/verification-checklist.md)
+- AI 迭代入口：[`AGENTS.md`](../AGENTS.md)
+- 全栈开发规范：[`docs/specs/development-spec-v1.md`](./specs/development-spec-v1.md)
+- 验收清单：[`docs/specs/verification-checklist.md`](./specs/verification-checklist.md)
 
 ## 常见问题
 

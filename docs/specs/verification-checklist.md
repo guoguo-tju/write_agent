@@ -14,7 +14,7 @@
 1. 前端改动（`frontend/**`）
 2. 后端业务改动（`src/write_agent/api/**`、`src/write_agent/services/**`、`src/write_agent/models/**`）
 3. 可观测/核心链路改动（`src/write_agent/observability/**`、全局异常处理、SSE 协议、trace 贯穿）
-4. 仅文档改动（`README*`、`docs/**`、`CHANGELOG.md`）
+4. 仅文档改动（`README*`、`docs/**`、`docs/CHANGELOG.md`）
 
 ## 3. Mandatory Commands by Class
 
@@ -71,7 +71,7 @@ PYTHONPATH=src uv run pytest -q
 若本次改动涉及“接口行为、可观测契约、验收标准”，必须同步更新：
 - `docs/specs/development-spec-v1.md`（必要时）
 - `docs/specs/verification-checklist.md`（必要时）
-- `CHANGELOG.md`
+- `docs/CHANGELOG.md`
 
 ## 6. Evidence Template (for delivery notes)
 提交结果建议使用以下结构：

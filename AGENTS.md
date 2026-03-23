@@ -5,14 +5,14 @@
 ## 1. Required Reading Order (MUST)
 1. `docs/specs/development-spec-v1.md`
 2. `docs/specs/verification-checklist.md`
-3. `CHANGELOG.md`（最新日期条目）
+3. `docs/CHANGELOG.md`（最新日期条目）
 
 ## 2. Default Execution Order (MUST)
 1. 理解需求与影响范围（前端/后端/可观测性）。
 2. 对照 `development-spec-v1.md` 确认约束（尤其 observability 与兼容性）。
 3. 实施改动（遵循分层与接口契约）。
 4. 按 `verification-checklist.md` 执行分层验收。
-5. 更新 `CHANGELOG.md` 并记录验证结果。
+5. 更新 `docs/CHANGELOG.md` 并记录验证结果。
 
 ## 3. Hard Constraints (MUST NOT)
 - 不得新增或改动 API/SSE 行为而缺失可观测编号（`node_id/behavior_id`）。

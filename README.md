@@ -2,7 +2,7 @@
 
 A full-stack AI writing agent for style extraction, rewriting, review, cover generation, and publishing-ready WeChat layout (FastAPI + React/Vite).
 
-[中文文档](./README.zh-CN.md)
+[中文文档](./docs/README.zh-CN.md)
 
 ## Highlights and Business Value
 

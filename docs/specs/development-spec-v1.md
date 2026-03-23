@@ -131,7 +131,7 @@
 2. 可观测性完整（埋点、SSE `obs`、错误字段、编号注册）。
 3. 验收通过（按分层清单执行并记录结果）。
 4. 文档更新（必要时更新规范/README）。
-5. `CHANGELOG.md` 更新（含 Verification）。
+5. `docs/CHANGELOG.md` 更新（含 Verification）。
 
 ## Important Public API / Interface Changes
 本规范本身不新增运行时 API。  

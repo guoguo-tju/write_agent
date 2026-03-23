@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-03-23
+
+### Changed
+- 仓库根目录瘦身：将 `README.zh-CN.md` 下沉至 `docs/README.zh-CN.md`，将 `CHANGELOG.md` 下沉至 `docs/CHANGELOG.md`，减少首页文件噪音。
+- 根 `README.md` 的中文文档入口更新为 `docs/README.zh-CN.md`。
+- 中文 README 迁移后统一修正相对路径：English 入口、截图链接、规范入口链接均调整为 `docs/` 内可达路径。
+- 开发规范文档同步更新 changelog 路径约定：`AGENTS.md`、`docs/specs/development-spec-v1.md`、`docs/specs/verification-checklist.md` 改为引用 `docs/CHANGELOG.md`。
+
+### Verification
+- `test -f docs/README.zh-CN.md && test -f docs/CHANGELOG.md` 通过。
+- `test ! -f README.zh-CN.md && test ! -f CHANGELOG.md` 通过。
+- `rg -n "README\\.zh-CN\\.md|CHANGELOG\\.md" README.md AGENTS.md docs/specs/*.md docs/README.zh-CN.md` 可命中更新后的新路径引用。
+
 ## 2026-03-22
 
 ### Added
