@@ -19,6 +19,13 @@ import type {
   GithubTrendRewriteBuildResponse,
   WorkflowSnapshot,
   WorkflowStepStatus,
+  XhsCommentTopic,
+  XhsInspirationCard,
+  XhsTrendAnalysisDone,
+  XhsTrendAnalysisSseEvent,
+  XhsTrendCategory,
+  XhsTrendItem,
+  XhsTrendListResponse,
 } from "../types";
 
 // Re-export types
@@ -42,6 +49,13 @@ export type {
   GithubTrendRewriteBuildResponse,
   WorkflowSnapshot,
   WorkflowStepStatus,
+  XhsCommentTopic,
+  XhsInspirationCard,
+  XhsTrendAnalysisDone,
+  XhsTrendAnalysisSseEvent,
+  XhsTrendCategory,
+  XhsTrendItem,
+  XhsTrendListResponse,
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -448,6 +462,105 @@ export const buildGithubTrendItemRewrite = async (
     },
   );
   return response.data;
+};
+
+// ========== 小红书热点 ==========
+
+export const getXhsTrendCategories = async (): Promise<XhsTrendCategory[]> => {
+  const response = await api.get<XhsTrendCategory[]>("/api/xhs-trends/categories");
+  return response.data;
+};
+
+export const getXhsTrends = async (
+  categoryKey: string,
+  sort: "hot" | "latest" = "hot",
+  limit = 10,
+): Promise<XhsTrendListResponse> => {
+  const response = await api.get<XhsTrendListResponse>("/api/xhs-trends", {
+    params: {
+      category_key: categoryKey,
+      sort,
+      limit,
+    },
+  });
+  return response.data;
+};
+
+export interface RefreshXhsTrendsOptions {
+  background?: boolean;
+  timeoutMs?: number;
+}
+
+export const refreshXhsTrends = async (
+  categoryKey?: string,
+  options: RefreshXhsTrendsOptions = {},
+): Promise<{ status: string; updated_at: string; refreshed_categories: string[]; errors: Record<string, string> }> => {
+  const response = await api.post<{
+    status: string;
+    updated_at: string;
+    refreshed_categories: string[];
+    errors: Record<string, string>;
+  }>("/api/xhs-trends/refresh", {
+    category_key: categoryKey || null,
+    background: Boolean(options.background),
+  }, {
+    timeout: options.timeoutMs ?? 60000,
+  });
+  return response.data;
+};
+
+export interface XhsTrendAnalysisStreamCallbacks {
+  onStart?: (event: XhsTrendAnalysisSseEvent) => void;
+  onProgress?: (event: XhsTrendAnalysisSseEvent) => void;
+  onDone: (payload: XhsTrendAnalysisDone) => void;
+  onError: (message: string, traceId?: string) => void;
+}
+
+export const streamXhsTrendAnalysis = (
+  categoryKey: string,
+  callbacks: XhsTrendAnalysisStreamCallbacks,
+): EventSource => {
+  const eventSource = new EventSource(
+    `${API_BASE_URL}/api/xhs-trends/analysis/stream?${new URLSearchParams({
+      category_key: categoryKey,
+    })}`,
+  );
+
+  eventSource.onmessage = (event) => {
+    const parsed = parseSseJson(event.data) as XhsTrendAnalysisSseEvent | null;
+    if (!parsed) {
+      return;
+    }
+    if (parsed.type === "start") {
+      callbacks.onStart?.(parsed);
+      return;
+    }
+    if (parsed.type === "progress") {
+      callbacks.onProgress?.(parsed);
+      return;
+    }
+    if (parsed.type === "done") {
+      if (parsed.data) {
+        callbacks.onDone(parsed.data);
+      } else {
+        callbacks.onError("分析结果为空");
+      }
+      eventSource.close();
+      return;
+    }
+    if (parsed.type === "error") {
+      const traceId = parsed.obs?.trace_id || parsed.trace_id || "";
+      callbacks.onError(sseErrorWithObs(parsed as unknown as Record<string, unknown>, "分析失败"), traceId);
+      eventSource.close();
+    }
+  };
+
+  eventSource.onerror = () => {
+    callbacks.onError("连接异常");
+    eventSource.close();
+  };
+
+  return eventSource;
 };
 
 // ========== 改写 ==========

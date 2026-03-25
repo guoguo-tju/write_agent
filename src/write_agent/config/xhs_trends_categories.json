@@ -1,0 +1,34 @@
+{
+  "categories": [
+    {
+      "key": "tech",
+      "name": "科技",
+      "name_en": "Tech",
+      "keywords": ["AI", "AIGC", "编程", "科技趋势", "效率工具"]
+    },
+    {
+      "key": "workplace",
+      "name": "职场",
+      "name_en": "Workplace",
+      "keywords": ["职场", "面试", "简历", "升职", "副业"]
+    },
+    {
+      "key": "food",
+      "name": "美食",
+      "name_en": "Food",
+      "keywords": ["美食", "探店", "家常菜", "减脂餐", "咖啡"]
+    },
+    {
+      "key": "emotion",
+      "name": "情感",
+      "name_en": "Emotion",
+      "keywords": ["情感", "恋爱", "两性关系", "亲密关系", "分手"]
+    },
+    {
+      "key": "growth",
+      "name": "个人成长",
+      "name_en": "Personal Growth",
+      "keywords": ["个人成长", "自律", "时间管理", "学习方法", "复盘"]
+    }
+  ]
+}

@@ -1,6 +1,14 @@
 import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { HomePage, StylesPage, MaterialsPage, ReviewsPage, CoversPage, GithubTrendsPage } from './pages';
+import {
+  HomePage,
+  StylesPage,
+  MaterialsPage,
+  ReviewsPage,
+  CoversPage,
+  GithubTrendsPage,
+  XhsTrendsPage,
+} from './pages';
 
 const LayoutPage = lazy(() =>
   import('./pages/LayoutPage').then((mod) => ({ default: mod.LayoutPage })),
@@ -15,6 +23,7 @@ function App() {
         <Route path="/materials" element={<MaterialsPage />} />
         <Route path="/reviews" element={<ReviewsPage />} />
         <Route path="/covers" element={<CoversPage />} />
+        <Route path="/hot-topics" element={<XhsTrendsPage />} />
         <Route path="/github-trends" element={<GithubTrendsPage />} />
         <Route
           path="/layout"

@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-03-24
+
+### Changed
+- 小红书热点服务新增 provider 分支：`algovate_mcp`（默认）与 `http_api`（兼容保留），`/api/xhs-trends*` 前后端接口路径与主交互保持不变。
+- `refresh` 流程切换为“分类关键词聚合 -> 去重标准化 -> 7天窗口与互动门槛过滤 -> hot/latest 排序 -> 热门条目补拉详情评论”。
+- 新增 xhs MCP 配置项并写入配置体系：`XHS_TRENDS_PROVIDER`、`XHS_MCP_URL`、`XHS_MCP_TIMEOUT_SECONDS`、`XHS_MCP_BROWSER_PATH`。
+- 分类配置支持 `keywords`，默认 5 类均预置 5 个检索词，缺省时回退为分类名。
+- 可观测注册新增节点 `SVC.XHS_TRENDS.MCP_CALL`，MCP 调用开始/成功/失败均产生日志事件并带错误码。
+- 刷新失败语义增强：`refresh.errors` 现在可返回真实失败原因（如 `xhs-mcp` 不可达、未登录），并保持缓存降级可读。
+- MCP 预检容错增强：`xhs_auth_status` 返回 `StatusCheckError` 时不再直接阻断刷新流程，改为记录告警后继续拉取真实列表。
+- MCP SSE 解码链路修复：优先按 UTF-8 解码 `text/event-stream`，并优化 fallback 反转义流程，修复中文标题乱码。
+- 本地预览调优：`XHS_MCP_TIMEOUT_SECONDS` 上调为 60 秒；本机 `.env` 临时设置 `XHS_TRENDS_LOOKBACK_DAYS=30` 以便小红书真实数据可视化验证（默认规范值仍为 7 天）。
+- 小红书刷新接口支持后台触发：`POST /api/xhs-trends/refresh` 新增请求字段 `background`（默认 `false`），`background=true` 时立即返回 `status=accepted` 并在后台执行刷新，避免前端 60s 超时阻断交互。
+- 热点页新增自动预取逻辑：首次进入或切分类且无数据时，自动触发后台批量预取并轮询当前分类数据，减少用户手动刷新操作。
+- 抓取动作可配置降噪：新增 `XHS_TRENDS_MAX_KEYWORDS_PER_CATEGORY`、`XHS_TRENDS_COMMENT_DETAIL_LIMIT`，支持降低单次刷新调用量，减少 `xhs-mcp` 频繁弹窗与超时概率。
+- 缓存降级显示优化：在 `http_api` provider 且无 base_url 的缓存回退路径中，清理历史 `fetch_error` 提示，避免长期显示陈旧错误。
+
+### Added
+- 新增 `tests/test_xhs_trends_service.py` 的 MCP 路径回归覆盖：关键词聚合去重、评论补拉、不可用降级缓存与 stale 状态断言。
+- 新增 MCP 容错与解码回归测试：`StatusCheckError` 不阻断刷新、SSE 中文内容 UTF-8 解码不乱码。
+- 新增 API 回归：`/api/xhs-trends/refresh` 背景模式返回契约测试（`status=accepted`）。
+
+### Verification
+- `env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy PYTHONPATH=src .venv/bin/pytest -q tests/test_xhs_trends_service.py tests/test_xhs_trends_api.py` 通过（11 passed）。
+- `env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy PYTHONPATH=src .venv/bin/pytest -q` 通过（85 passed）。
+- `cd frontend && npm run build` 通过。
+- `PYTHONPATH=src .venv/bin/pytest -q tests/test_xhs_trends_service.py -k "transient_status_check_error or extract_text_payload_from_sse_keeps_chinese_text or decode_mcp_http_payload_uses_utf8_for_sse"` 通过（3 passed）。
+- `curl --noproxy '*' -sS -X POST "http://127.0.0.1:8000/api/xhs-trends/refresh" -H "Content-Type: application/json" -d '{"category_key":"tech"}'` 返回 `refreshed_categories=["tech"]`。
+- `curl --noproxy '*' -sS "http://127.0.0.1:8000/api/xhs-trends?category_key=tech&sort=hot&limit=5"` 返回 `item_count=5`，标题中文正常显示。
+- `env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy PYTHONPATH=src .venv/bin/pytest -q tests/test_xhs_trends_service.py tests/test_xhs_trends_api.py` 通过（15 passed）。
+- `cd frontend && npm run build` 通过。
+
 ## 2026-03-23
 
 ### Changed
@@ -8,12 +40,28 @@
 - 中文 README 迁移后统一修正相对路径：English 入口、截图链接、规范入口链接均调整为 `docs/` 内可达路径。
 - 开发规范文档同步更新 changelog 路径约定：`AGENTS.md`、`docs/specs/development-spec-v1.md`、`docs/specs/verification-checklist.md` 改为引用 `docs/CHANGELOG.md`。
 - 新增根目录 `LICENSE`（MIT 正文），并将中英文 README 的许可证改为可点击链接，同时补充 MIT 徽章。
+- 新增小红书热点能力（`/api/xhs-trends`）：支持分类查询、分类热点列表、手动刷新、分类分析 SSE 流。
+- 新增「热点选题」独立前端 Tab（`/hot-topics`）：分类切换、热度/最新排序、10 条热点展示、自动分析与 `trace_id` 排障提示。
+- 小红书热点遵循固定规则：近 7 天窗口、最小互动门槛 100、热度公式 `like*1.0 + favorite*0.8 + comment*0.5`。
+- 可观测注册表新增 xhs 相关节点：API 入口、SSE 事件与服务链路（categories/get/refresh/analyze）。
+- `.env.example` 扩展 `XHS_TRENDS_*` 配置项，默认分类配置文件落位 `src/write_agent/config/xhs_trends_categories.json`。
+
+### Added
+- 新增后端服务 `src/write_agent/services/xhs_trends_service.py`，实现第三方授权数据抓取、缓存、排序过滤、规则/LLM 混合分析。
+- 新增后端路由 `src/write_agent/api/xhs_trends.py`，并接入主 API Router。
+- 新增前端页面 `frontend/src/pages/XhsTrendsPage.tsx` 与样式 `frontend/src/pages/XhsTrendsPage.css`。
+- 新增前端类型与 API 封装：`XhsTrendItem`、`XhsTrendListResponse`、`XhsTrendAnalysisSseEvent`、`XhsInspirationCard`、`XhsCommentTopic`。
+- 新增分类配置文件 `src/write_agent/config/xhs_trends_categories.json`（默认 5 类：科技/职场/美食/情感/个人成长）。
+- 新增回归测试：`tests/test_xhs_trends_service.py`、`tests/test_xhs_trends_api.py`。
 
 ### Verification
 - `test -f docs/README.zh-CN.md && test -f docs/CHANGELOG.md` 通过。
 - `test ! -f README.zh-CN.md && test ! -f CHANGELOG.md` 通过。
 - `rg -n "README\\.zh-CN\\.md|CHANGELOG\\.md" README.md AGENTS.md docs/specs/*.md docs/README.zh-CN.md` 可命中更新后的新路径引用。
 - `test -f LICENSE && rg -n "License: MIT|\\(\\./LICENSE\\)|\\(\\.\\./LICENSE\\)" README.md docs/README.zh-CN.md` 通过。
+- `env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy PYTHONPATH=src .venv/bin/pytest -q tests/test_xhs_trends_service.py tests/test_xhs_trends_api.py` 通过（8 passed）。
+- `env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy PYTHONPATH=src .venv/bin/pytest -q` 通过（82 passed）。
+- `cd frontend && npm run build` 通过。
 
 ## 2026-03-22
 

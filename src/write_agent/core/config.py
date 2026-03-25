@@ -57,6 +57,23 @@ class Settings(BaseSettings):
     github_trending_daily_hour: int = 9
     github_trending_daily_minute: int = 5
 
+    # 小红书热点（第三方已授权数据服务）
+    xhs_trends_provider: str = "algovate_mcp"  # algovate_mcp|http_api
+    xhs_trends_api_base_url: str = ""
+    xhs_trends_api_key: str = ""
+    xhs_trends_timeout_seconds: float = 12.0
+    xhs_trends_timezone: str = "Asia/Shanghai"
+    xhs_trends_lookback_days: int = 7
+    xhs_trends_min_interactions: int = 100
+    xhs_trends_default_limit: int = 10
+    xhs_trends_cache_file: str = "./data/xhs_trends_cache.json"
+    xhs_trends_categories_file: str = "./src/write_agent/config/xhs_trends_categories.json"
+    xhs_mcp_url: str = "http://127.0.0.1:3000/mcp"
+    xhs_mcp_timeout_seconds: float = 20.0
+    xhs_mcp_browser_path: str = ""
+    xhs_trends_max_keywords_per_category: int = 5
+    xhs_trends_comment_detail_limit: int = 12
+
     # 数据库配置
     database_url: str = "sqlite:///./data/acceptance_write_agent.db"
 

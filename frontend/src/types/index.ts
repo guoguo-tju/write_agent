@@ -103,6 +103,73 @@ export interface GithubTrendRewriteBuildResponse {
   enrich?: GithubTrendEnrichMeta;
 }
 
+export interface XhsTrendCategory {
+  key: string;
+  name: string;
+  name_en: string;
+}
+
+export interface XhsTrendItem {
+  id?: string;
+  title: string;
+  content_type: "video" | "image_text" | string;
+  like_count: number;
+  favorite_count: number;
+  comment_count: number;
+  publish_time: string;
+  source_url: string;
+  hot_score: number;
+  interactions: number;
+}
+
+export interface XhsTrendListResponse {
+  category_key: string;
+  category_name: string;
+  category_name_en: string;
+  sort: "hot" | "latest" | string;
+  lookback_days: number;
+  min_interactions: number;
+  updated_at: string;
+  fetch_error?: string;
+  is_stale: boolean;
+  items: XhsTrendItem[];
+}
+
+export interface XhsCommentTopic {
+  topic: string;
+  ratio: string;
+  sample_comment: string;
+}
+
+export interface XhsInspirationCard {
+  topic: string;
+  content_type: "video" | "image_text" | string;
+  title_hook: string;
+  rationale: string;
+}
+
+export interface XhsTrendAnalysisDone {
+  category_key: string;
+  category_name: string;
+  generated_at: string;
+  reason_points: string[];
+  comment_topics: XhsCommentTopic[];
+  inspiration_cards: XhsInspirationCard[];
+}
+
+export interface XhsTrendAnalysisSseEvent {
+  type: "start" | "progress" | "done" | "error";
+  category_key: string;
+  stage?: string;
+  message?: string;
+  data?: XhsTrendAnalysisDone;
+  obs?: ObservabilityMeta;
+  trace_id?: string;
+  node_id?: string;
+  behavior_id?: string;
+  error_code?: string;
+}
+
 // 改写记录
 export interface RewriteRecord {
   id: number;

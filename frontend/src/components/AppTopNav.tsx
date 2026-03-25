@@ -6,10 +6,16 @@ import "./AppTopNav.css";
 
 export const AppTopNav: React.FC = () => {
   const { lang, setLang, text } = useLanguage();
-  const LEFT_PINNED_ITEM = {
-    to: "/github-trends",
-    label: text.nav.links.githubTrends,
-  } as const;
+  const LEFT_PINNED_ITEMS = [
+    {
+      to: "/hot-topics",
+      label: text.nav.links.hotTopics,
+    },
+    {
+      to: "/github-trends",
+      label: text.nav.links.githubTrends,
+    },
+  ] as const;
   const NAV_ITEMS = [
     { to: "/", label: text.nav.links.rewrite },
     { to: "/styles", label: text.nav.links.styles },
@@ -30,14 +36,17 @@ export const AppTopNav: React.FC = () => {
             <span>砚雀 (YanQue)</span>
           </div>
 
-          <NavLink
-            to={LEFT_PINNED_ITEM.to}
-            className={({ isActive }) =>
-              `app-top-nav-item app-top-nav-item-left${isActive ? " active" : ""}`
-            }
-          >
-            {LEFT_PINNED_ITEM.label}
-          </NavLink>
+          {LEFT_PINNED_ITEMS.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `app-top-nav-item app-top-nav-item-left${isActive ? " active" : ""}`
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
         </div>
 
         <div className="app-top-nav-right">
