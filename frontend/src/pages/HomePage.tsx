@@ -17,12 +17,16 @@ import {
   extractStyle,
   getMaterialsPage,
   getRewrite,
+  getLatestWorkflowJobByRewrite,
   getRewritesPage,
   getStyles,
   runWorkflowWithStream,
+  streamWorkflowJobEvents,
   type Material,
   type RagRetrievedItem,
   type RewriteRecord,
+  type WorkflowStreamCallbacks,
+  type WorkflowStreamEvent,
   type WritingStyle,
 } from "../services/api";
 import "./HomePage.css";
@@ -57,6 +61,22 @@ const parseRewriteId = (value: string | null): number | null => {
     return null;
   }
   return parsed;
+};
+
+const isAbortErrorLike = (error: unknown): boolean => {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const typedError = error as Error & { code?: string };
+  return (
+    typedError.name === "CanceledError" ||
+    typedError.code === "ERR_CANCELED" ||
+    typedError.message === "canceled"
+  );
 };
 
 const parseRagRetrieved = (
@@ -136,6 +156,8 @@ export const HomePage: React.FC = () => {
   const [isMaterialPickerLoading, setIsMaterialPickerLoading] = useState(false);
 
   const workflowAbortRef = useRef<AbortController | null>(null);
+  const workflowSessionRef = useRef<number | null>(null);
+  const workflowSessionSeqRef = useRef(0);
 
   const countWords = (content: string) => {
     const cleaned = content
@@ -156,6 +178,7 @@ export const HomePage: React.FC = () => {
     return () => {
       workflowAbortRef.current?.abort();
       workflowAbortRef.current = null;
+      workflowSessionRef.current = null;
     };
   }, []);
 
@@ -299,11 +322,13 @@ export const HomePage: React.FC = () => {
     }
   };
 
-  const handleRewrite = () => {
-    if (!sourceContent.trim() || !selectedStyleId) {
-      return;
-    }
-
+  const executeWorkflowStream = async (
+    runner: (
+      callbacks: WorkflowStreamCallbacks,
+      signal: AbortSignal,
+    ) => Promise<WorkflowStreamEvent[]>,
+    initialRewriteId: number | null = null,
+  ) => {
     workflowAbortRef.current?.abort();
 
     setIsLoading(true);
@@ -312,108 +337,111 @@ export const HomePage: React.FC = () => {
     setRagReferences([]);
     setAutoReviewStatus("idle");
     setAutoReviewMessage("");
-    setAutoReviewRewriteId(null);
+    setAutoReviewRewriteId(initialRewriteId);
+    if (initialRewriteId) {
+      syncRewriteQuery(initialRewriteId);
+    }
+
     const controller = new AbortController();
     workflowAbortRef.current = controller;
-    let currentRewriteId: number | null = null;
+    const sessionId = workflowSessionSeqRef.current + 1;
+    workflowSessionSeqRef.current = sessionId;
+    workflowSessionRef.current = sessionId;
+
+    let currentRewriteId: number | null = initialRewriteId;
     let lastReviewScore: number | null = null;
 
-    void runWorkflowWithStream(
-      {
-        source_article: sourceContent,
-        style_id: selectedStyleId,
-        target_words: targetLength,
-        enable_rag: enableRag,
-        rag_top_k: ragTopK,
-      },
-      {
-        onStage: (event) => {
-          const rewriteId = Number(event.rewrite_id || 0) || null;
-          if (rewriteId) {
-            currentRewriteId = rewriteId;
-            setAutoReviewRewriteId(rewriteId);
-            syncRewriteQuery(rewriteId);
-          }
-
-          const stage = event.stage;
-          const round = Number(event.round || 1);
-          if (stage === "rewrite") {
-            if (round === 2) {
-              setRewrittenContent("");
-              setResultWordCount(0);
-              setAutoReviewMessage(homeText.loopStageRewriteRound2);
-            } else {
-              setAutoReviewMessage(homeText.loopStageRewriteRound1);
+    try {
+      await runner(
+        {
+          onStage: (event) => {
+            const rewriteId = Number(event.rewrite_id || 0) || null;
+            if (rewriteId) {
+              currentRewriteId = rewriteId;
+              setAutoReviewRewriteId(rewriteId);
+              syncRewriteQuery(rewriteId);
             }
-          } else if (stage === "review") {
-            setAutoReviewMessage(
-              round === 2
-                ? homeText.loopStageReviewRound2
-                : homeText.loopStageReviewRound1,
-            );
-          }
-          setAutoReviewStatus("running");
-        },
-        onProgress: (event) => {
-          const message = String(event.message || "");
-          if (message) {
-            setAutoReviewMessage(message);
-          }
-        },
-        onContent: (event) => {
-          const delta = String(event.delta || "");
-          if (!delta) {
-            return;
-          }
-          setRewrittenContent((prev) => {
-            const next = prev + delta;
-            setResultWordCount(countWords(next));
-            return next;
-          });
-        },
-        onReviewDone: (event) => {
-          lastReviewScore = Number(event.score || 0) || null;
-        },
-        onDone: (event) => {
-          setIsLoading(false);
 
-          const rewriteId = Number(event.rewrite_id || 0) || currentRewriteId;
-          if (rewriteId) {
-            currentRewriteId = rewriteId;
-            setAutoReviewRewriteId(rewriteId);
-            syncRewriteQuery(rewriteId);
-            void loadRagReferences(rewriteId);
-          }
+            const stage = event.stage;
+            const round = Number(event.round || 1);
+            if (stage === "rewrite") {
+              if (round === 2) {
+                setRewrittenContent("");
+                setResultWordCount(0);
+                setAutoReviewMessage(homeText.loopStageRewriteRound2);
+              } else {
+                setAutoReviewMessage(homeText.loopStageRewriteRound1);
+              }
+            } else if (stage === "review") {
+              setAutoReviewMessage(
+                round === 2
+                  ? homeText.loopStageReviewRound2
+                  : homeText.loopStageReviewRound1,
+              );
+            }
+            setAutoReviewStatus("running");
+          },
+          onProgress: (event) => {
+            const message = String(event.message || "");
+            if (message) {
+              setAutoReviewMessage(message);
+            }
+          },
+          onContent: (event) => {
+            const delta = String(event.delta || "");
+            if (!delta) {
+              return;
+            }
+            setRewrittenContent((prev) => {
+              const next = prev + delta;
+              setResultWordCount(countWords(next));
+              return next;
+            });
+          },
+          onReviewDone: (event) => {
+            lastReviewScore = Number(event.score || 0) || null;
+          },
+          onDone: (event) => {
+            setIsLoading(false);
 
-          if (event.status === "passed") {
-            const scoreSuffix = lastReviewScore
-              ? t(homeText.scoreSuffix, { score: lastReviewScore })
-              : "";
-            setAutoReviewStatus("success");
-            setAutoReviewMessage(t(homeText.loopDonePassed, { scoreSuffix }));
-          } else {
+            const rewriteId = Number(event.rewrite_id || 0) || currentRewriteId;
+            if (rewriteId) {
+              currentRewriteId = rewriteId;
+              setAutoReviewRewriteId(rewriteId);
+              syncRewriteQuery(rewriteId);
+              void loadRagReferences(rewriteId);
+            }
+
+            if (event.status === "passed") {
+              const scoreSuffix = lastReviewScore
+                ? t(homeText.scoreSuffix, { score: lastReviewScore })
+                : "";
+              setAutoReviewStatus("success");
+              setAutoReviewMessage(t(homeText.loopDonePassed, { scoreSuffix }));
+            } else {
+              setAutoReviewStatus("error");
+              setAutoReviewMessage(homeText.loopDoneMaxRetries);
+            }
+
+            if (historyPage !== 1) {
+              setHistoryPage(1);
+            } else {
+              void loadHistoryPage(1);
+            }
+          },
+          onError: (event) => {
+            setIsLoading(false);
+            const message = String(event.message || "").trim();
             setAutoReviewStatus("error");
-            setAutoReviewMessage(homeText.loopDoneMaxRetries);
-          }
-
-          if (historyPage !== 1) {
-            setHistoryPage(1);
-          } else {
-            void loadHistoryPage(1);
-          }
+            setAutoReviewMessage(
+              message ? `${homeText.loopFailed} ${message}` : homeText.loopFailed,
+            );
+          },
         },
-        onError: (event) => {
-          setIsLoading(false);
-          const message = String(event.message || "").trim();
-          setAutoReviewStatus("error");
-          setAutoReviewMessage(
-            message ? `${homeText.loopFailed} ${message}` : homeText.loopFailed,
-          );
-        },
-      },
-      controller.signal,
-    ).catch((error) => {
-      if (error instanceof DOMException && error.name === "AbortError") {
+        controller.signal,
+      );
+    } catch (error) {
+      if (isAbortErrorLike(error)) {
         return;
       }
       console.error("改写-审核闭环执行失败:", error);
@@ -424,16 +452,87 @@ export const HomePage: React.FC = () => {
           ? `${homeText.loopFailed} ${error.message}`
           : homeText.loopFailed,
       );
-    }).finally(() => {
+    } finally {
       if (workflowAbortRef.current === controller) {
         workflowAbortRef.current = null;
       }
-    });
+      if (workflowSessionRef.current === sessionId) {
+        workflowSessionRef.current = null;
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!rewriteIdFromQuery) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const attemptResume = async () => {
+      try {
+        const rewrite = await getRewrite(rewriteIdFromQuery);
+        if (
+          cancelled ||
+          rewrite.status !== "running" ||
+          workflowSessionRef.current !== null
+        ) {
+          return;
+        }
+
+        const job = await getLatestWorkflowJobByRewrite(rewriteIdFromQuery);
+        if (
+          cancelled ||
+          workflowSessionRef.current !== null ||
+          !job.job_id ||
+          ["completed", "failed", "cancelled"].includes(job.status)
+        ) {
+          return;
+        }
+
+        await executeWorkflowStream(
+          (callbacks, signal) =>
+            streamWorkflowJobEvents(job.job_id, callbacks, signal, 0),
+          rewriteIdFromQuery,
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.error("恢复工作流任务失败:", error);
+        }
+      }
+    };
+
+    void attemptResume();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rewriteIdFromQuery]);
+
+  const handleRewrite = () => {
+    if (!sourceContent.trim() || !selectedStyleId) {
+      return;
+    }
+
+    void executeWorkflowStream((callbacks, signal) =>
+      runWorkflowWithStream(
+        {
+          source_article: sourceContent,
+          style_id: selectedStyleId,
+          target_words: targetLength,
+          enable_rag: enableRag,
+          rag_top_k: ragTopK,
+        },
+        callbacks,
+        signal,
+      ),
+    );
   };
 
   const cancelRewrite = () => {
     workflowAbortRef.current?.abort();
     workflowAbortRef.current = null;
+    workflowSessionRef.current = null;
     setIsLoading(false);
     setAutoReviewStatus("idle");
     setAutoReviewMessage("");

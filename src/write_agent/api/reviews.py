@@ -4,7 +4,7 @@
 import json
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -15,6 +15,7 @@ from write_agent.observability import (
     obs_scope,
 )
 from write_agent.services.review_service import get_review_service
+from write_agent.services.workflow_job_service import get_workflow_job_service
 from write_agent.services.workflow_service import get_workflow_service
 
 router = APIRouter(prefix="/reviews", tags=["文章审核"])
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 # 服务实例
 review_service = get_review_service()
 workflow_service = get_workflow_service()
+workflow_job_service = get_workflow_job_service()
 
 
 # ============ 请求/响应模型 ============
@@ -40,6 +42,29 @@ class CreateWorkflowRequest(BaseModel):
     enable_rag: bool = False
     rag_top_k: int = 3
     max_retries: int = 1
+    idempotency_key: Optional[str] = None
+    force_new: bool = False
+
+
+class CreateWorkflowJobResponse(BaseModel):
+    job_id: int
+    status: str
+    idempotent_hit: bool = False
+    rewrite_id: Optional[int] = None
+    checkpoint_seq: int = 0
+
+
+class WorkflowJobStatusResponse(BaseModel):
+    job_id: int
+    status: str
+    current_stage: str
+    checkpoint_stage: str
+    checkpoint_seq: int
+    resume_count: int
+    rewrite_id: Optional[int] = None
+    review_id: Optional[int] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 class ReviewResponse(BaseModel):
@@ -120,6 +145,21 @@ def _review_sse_with_obs(
         },
     )
     return _sse_event(enriched)
+
+
+def _workflow_job_to_status(job) -> WorkflowJobStatusResponse:
+    return WorkflowJobStatusResponse(
+        job_id=job.id,
+        status=job.status,
+        current_stage=job.current_stage,
+        checkpoint_stage=job.checkpoint_stage,
+        checkpoint_seq=job.checkpoint_seq,
+        resume_count=job.resume_count,
+        rewrite_id=job.rewrite_id,
+        review_id=job.review_id,
+        error_code=job.error_code,
+        error_message=job.error_message,
+    )
 
 @router.post("")
 async def create_review(request: CreateReviewRequest):
@@ -217,20 +257,24 @@ async def create_workflow(request: CreateWorkflowRequest):
                     "target_words": request.target_words,
                     "enable_rag": request.enable_rag,
                     "rag_top_k": request.rag_top_k,
-                    "max_retries": 1,
+                    "max_retries": request.max_retries,
                 },
             )
 
             def generate():
                 try:
-                    for event in workflow_service.run_stream(
+                    # 旧接口桥接到任务引擎：每次调用默认创建新任务（兼容旧语义）
+                    job, _ = workflow_job_service.create_job(
                         source_article=request.source_article,
                         style_id=request.style_id,
                         target_words=request.target_words,
                         enable_rag=request.enable_rag,
                         rag_top_k=request.rag_top_k,
                         max_retries=1,
-                    ):
+                        idempotency_key=request.idempotency_key,
+                        force_new=True if not request.force_new else request.force_new,
+                    )
+                    for event in workflow_job_service.stream_events(job.id, from_seq=0):
                         rewrite_id = event.get("rewrite_id")
                         review_id = event.get("review_id")
                         if rewrite_id or review_id:
@@ -242,6 +286,8 @@ async def create_workflow(request: CreateWorkflowRequest):
                             rewrite_id=rewrite_id,
                             review_id=review_id,
                         )
+                        if event.get("type") in {"done", "error"}:
+                            break
                 except Exception as e:
                     logger.error("工作流流式执行失败: %s", e, exc_info=True)
                     yield _review_sse_with_obs({"type": "error", "message": str(e)})
@@ -259,6 +305,144 @@ async def create_workflow(request: CreateWorkflowRequest):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workflow/jobs", response_model=CreateWorkflowJobResponse)
+async def create_workflow_job(request: CreateWorkflowRequest):
+    """创建异步工作流任务。"""
+    with obs_scope("API.REVIEWS.WORKFLOW_JOBS_CREATE", "HTTP_SYNC"):
+        try:
+            if not request.source_article or not request.source_article.strip():
+                raise HTTPException(status_code=400, detail="请输入文章内容")
+            if request.target_words < 100 or request.target_words > 10000:
+                raise HTTPException(status_code=400, detail="目标字数应在 100-10000 之间")
+
+            from sqlmodel import Session
+            from write_agent.models import WritingStyle
+            from write_agent.core.database import engine
+
+            with Session(engine) as session:
+                style = session.get(WritingStyle, request.style_id)
+                if not style:
+                    raise HTTPException(status_code=404, detail="风格不存在")
+
+            job, idempotent_hit = workflow_job_service.create_job(
+                source_article=request.source_article,
+                style_id=request.style_id,
+                target_words=request.target_words,
+                enable_rag=request.enable_rag,
+                rag_top_k=request.rag_top_k,
+                max_retries=1,
+                idempotency_key=request.idempotency_key,
+                force_new=request.force_new,
+            )
+            bind_entities({"rewrite_id": job.rewrite_id, "review_id": job.review_id})
+            emit_obs_event(
+                level="INFO",
+                message="api.reviews.workflow.jobs.create",
+                payload={"job_id": job.id, "status": job.status, "idempotent_hit": idempotent_hit},
+            )
+            return CreateWorkflowJobResponse(
+                job_id=job.id,
+                status=job.status,
+                idempotent_hit=idempotent_hit,
+                rewrite_id=job.rewrite_id,
+                checkpoint_seq=job.checkpoint_seq,
+            )
+        except HTTPException:
+            raise
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+        except Exception as error:
+            raise HTTPException(status_code=500, detail=str(error))
+
+
+@router.get("/workflow/jobs/{job_id:int}", response_model=WorkflowJobStatusResponse)
+async def get_workflow_job_status(job_id: int):
+    with obs_scope("API.REVIEWS.WORKFLOW_JOB_STATUS", "HTTP_SYNC"):
+        job = workflow_job_service.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        return _workflow_job_to_status(job)
+
+
+@router.get("/workflow/jobs/by-rewrite/{rewrite_id:int}", response_model=WorkflowJobStatusResponse)
+async def get_latest_workflow_job_by_rewrite(rewrite_id: int):
+    with obs_scope("API.REVIEWS.WORKFLOW_JOB_STATUS", "HTTP_SYNC"):
+        job = workflow_job_service.get_latest_job_by_rewrite(rewrite_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        return _workflow_job_to_status(job)
+
+
+@router.get("/workflow/jobs/{job_id:int}/stream")
+async def stream_workflow_job_events(
+    job_id: int,
+    from_seq: int = Query(default=0, ge=0),
+):
+    """SSE: 回放 + 实时推送任务事件。"""
+    with obs_scope("API.REVIEWS.WORKFLOW_JOB_STREAM", "HTTP_SSE_STREAM"):
+        job = workflow_job_service.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="任务不存在")
+
+        def generate():
+            try:
+                for event in workflow_job_service.stream_events(job_id, from_seq=from_seq):
+                    rewrite_id = event.get("rewrite_id")
+                    review_id = event.get("review_id")
+                    if rewrite_id or review_id:
+                        bind_entities({"rewrite_id": rewrite_id, "review_id": review_id})
+                    yield _review_sse_with_obs(
+                        event,
+                        rewrite_id=rewrite_id,
+                        review_id=review_id,
+                    )
+                    if event.get("type") in {"done", "error"}:
+                        break
+            except Exception as error:
+                logger.error("任务流输出失败: %s", error, exc_info=True)
+                yield _review_sse_with_obs({"type": "error", "message": str(error)})
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+
+@router.post("/workflow/jobs/{job_id:int}/resume", response_model=WorkflowJobStatusResponse)
+async def resume_workflow_job(job_id: int):
+    with obs_scope("API.REVIEWS.WORKFLOW_JOB_RESUME", "HTTP_SYNC"):
+        try:
+            job = workflow_job_service.resume_job(job_id)
+            emit_obs_event(
+                level="INFO",
+                message="api.reviews.workflow.jobs.resume",
+                payload={"job_id": job.id, "status": job.status, "resume_count": job.resume_count},
+            )
+            return _workflow_job_to_status(job)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error))
+
+
+@router.post("/workflow/jobs/{job_id:int}/cancel", response_model=WorkflowJobStatusResponse)
+async def cancel_workflow_job(job_id: int):
+    with obs_scope("API.REVIEWS.WORKFLOW_JOB_CANCEL", "HTTP_SYNC"):
+        try:
+            job = workflow_job_service.cancel_job(job_id)
+            emit_obs_event(
+                level="INFO",
+                message="api.reviews.workflow.jobs.cancel",
+                payload={"job_id": job.id, "status": job.status},
+            )
+            return _workflow_job_to_status(job)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error))
 
 
 @router.get("/{review_id:int}", response_model=ReviewResponse)

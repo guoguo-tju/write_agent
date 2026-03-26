@@ -103,6 +103,83 @@ export interface GithubTrendRewriteBuildResponse {
   enrich?: GithubTrendEnrichMeta;
 }
 
+export interface XhsTrendCategory {
+  key: string;
+  name: string;
+  name_en: string;
+}
+
+export interface XhsTrendItem {
+  id: string;
+  title: string;
+  content: string;
+  content_type: string;
+  like_count: number;
+  favorite_count: number;
+  comment_count: number;
+  publish_time: string;
+  source_url: string;
+  hot_score: number;
+  interactions: number;
+}
+
+export interface XhsTrendListResponse {
+  category_key: string;
+  category_name: string;
+  category_name_en: string;
+  sort: string;
+  lookback_days: number;
+  min_interactions: number;
+  updated_at: string;
+  fetch_error?: string | null;
+  is_stale: boolean;
+  items: XhsTrendItem[];
+}
+
+export interface XhsTrendRefreshResponse {
+  status: string;
+  updated_at: string;
+  refreshed_categories: string[];
+  errors: Record<string, string>;
+}
+
+export interface XhsCommentTopic {
+  topic: string;
+  ratio: string;
+  sample_comment: string;
+}
+
+export interface XhsInspirationCard {
+  topic: string;
+  content_type: string;
+  title_hook: string;
+  rationale: string;
+}
+
+export interface XhsTrendAnalysisDone {
+  category_key: string;
+  category_name: string;
+  generated_at: string;
+  reason_points: string[];
+  comment_topics: XhsCommentTopic[];
+  inspiration_cards: XhsInspirationCard[];
+}
+
+export interface XhsTrendAnalysisStreamEvent {
+  type: string;
+  category_key: string;
+  stage?: string;
+  message?: string;
+  data?: XhsTrendAnalysisDone;
+}
+
+export interface XhsTrendAnalysisStreamCallbacks {
+  onStart?: (event: XhsTrendAnalysisStreamEvent) => void;
+  onProgress?: (event: XhsTrendAnalysisStreamEvent) => void;
+  onDone?: (data: XhsTrendAnalysisDone) => void;
+  onError?: (message: string, traceId?: string) => void;
+}
+
 // 改写记录
 export interface RewriteRecord {
   id: number;
@@ -240,6 +317,46 @@ export interface WorkflowState {
   message?: string;
 }
 
+export interface WorkflowStreamEvent {
+  type: string;
+  stage?: string;
+  round?: number;
+  rewrite_id?: number;
+  review_id?: number;
+  job_id?: number;
+  seq?: number;
+  checkpoint_stage?: string;
+  is_replay?: boolean;
+  delta?: string;
+  message?: string;
+  passed?: boolean;
+  score?: number;
+  reason?: string;
+  status?: "passed" | "reached_max_loops";
+  retry_count?: number;
+  max_retries?: number;
+  actual_words?: number;
+  obs?: ObservabilityMeta;
+  trace_id?: string;
+  request_id?: string;
+  node_id?: string;
+  node_key?: string;
+  behavior_id?: string;
+  behavior_key?: string;
+  event_id?: string;
+  ts?: string;
+  error_code?: string;
+}
+
+export interface WorkflowStreamCallbacks {
+  onStage?: (event: WorkflowStreamEvent) => void;
+  onProgress?: (event: WorkflowStreamEvent) => void;
+  onContent?: (event: WorkflowStreamEvent) => void;
+  onReviewDone?: (event: WorkflowStreamEvent) => void;
+  onDone?: (event: WorkflowStreamEvent) => void;
+  onError?: (event: WorkflowStreamEvent) => void;
+}
+
 export type WorkflowStepStatus =
   | "completed"
   | "current"
@@ -257,6 +374,38 @@ export interface WorkflowSnapshot {
     manual_edit: WorkflowStepStatus;
     cover: WorkflowStepStatus;
   };
+}
+
+export interface WorkflowLoopRequest {
+  source_article: string;
+  style_id: number;
+  target_words?: number;
+  enable_rag?: boolean;
+  rag_top_k?: number;
+  max_retries?: number;
+  idempotency_key?: string;
+  force_new?: boolean;
+}
+
+export interface WorkflowJobCreateResponse {
+  job_id: number;
+  status: string;
+  idempotent_hit: boolean;
+  rewrite_id?: number;
+  checkpoint_seq: number;
+}
+
+export interface WorkflowJobStatusResponse {
+  job_id: number;
+  status: string;
+  current_stage: string;
+  checkpoint_stage: string;
+  checkpoint_seq: number;
+  resume_count: number;
+  rewrite_id?: number;
+  review_id?: number;
+  error_code?: string;
+  error_message?: string;
 }
 
 export interface LayoutSeed {

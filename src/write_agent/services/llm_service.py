@@ -30,11 +30,13 @@ class LLMService:
             model=settings.openai_model,
             openai_api_key=settings.openai_api_key,
             base_url=base_url,
+            timeout=settings.openai_timeout_seconds,
         )
         logger.info(
-            "LLM 服务初始化完成，使用模型: %s, base_url: %s",
+            "LLM 服务初始化完成，使用模型: %s, base_url: %s, timeout=%ss",
             settings.openai_model,
             base_url,
+            settings.openai_timeout_seconds,
         )
 
     def chat(

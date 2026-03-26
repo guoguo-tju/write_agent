@@ -6,6 +6,7 @@ import "./AppTopNav.css";
 
 export const AppTopNav: React.FC = () => {
   const { lang, setLang, text } = useLanguage();
+  const SHOW_HOT_TOPICS_TAB = false;
   const LEFT_PINNED_ITEM = {
     to: "/github-trends",
     label: text.nav.links.githubTrends,
@@ -16,6 +17,9 @@ export const AppTopNav: React.FC = () => {
     { to: "/materials", label: text.nav.links.materials },
     { to: "/reviews", label: text.nav.links.reviews },
     { to: "/covers", label: text.nav.links.covers },
+    ...(SHOW_HOT_TOPICS_TAB
+      ? [{ to: "/hot-topics", label: text.nav.links.hotTopics }]
+      : []),
     { to: "/layout", label: text.nav.links.layout },
   ] as const;
 

@@ -12,6 +12,9 @@ from .github_trending_snapshot import GitHubTrendingSnapshot
 from .github_trending_item import GitHubTrendingItem
 from .github_repo_enrichment_cache import GitHubRepoEnrichmentCache
 from .observability_event import ObservabilityEvent
+from .workflow_job import WorkflowJob
+from .workflow_job_event import WorkflowJobEvent
+from .rewrite_chunk import RewriteChunk
 
 __all__ = [
     "WritingStyle",
@@ -25,4 +28,7 @@ __all__ = [
     "GitHubTrendingItem",
     "GitHubRepoEnrichmentCache",
     "ObservabilityEvent",
+    "WorkflowJob",
+    "WorkflowJobEvent",
+    "RewriteChunk",
 ]

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from types import SimpleNamespace
 
 venv_path = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
@@ -75,23 +76,56 @@ def test_error_payload_contains_observability_fields() -> None:
 
 def test_workflow_sse_events_include_obs(monkeypatch: pytest.MonkeyPatch) -> None:
     from write_agent.api import reviews as reviews_api
-    from write_agent.main import app as fastapi_app
 
-    client = TestClient(fastapi_app)
+    client = TestClient(app)
+    fake_job = SimpleNamespace(id=421, status="queued", rewrite_id=123, review_id=456, checkpoint_seq=0)
 
-    def fake_run_stream(**_kwargs):
-        yield {"type": "stage", "stage": "rewrite", "round": 1, "rewrite_id": 123}
+    def fake_create_job(**_kwargs):
+        return fake_job, False
+
+    def fake_stream_events(job_id: int, *, from_seq: int = 0, **_kwargs):
         yield {
-            "type": "done",
-            "status": "passed",
-            "passed": True,
+            "type": "stage",
+            "stage": "rewrite",
+            "round": 1,
             "rewrite_id": 123,
             "review_id": 456,
+            "job_id": job_id,
+            "seq": 1,
+        }
+        yield {
+            "type": "progress",
+            "stage": "rewrite",
             "round": 1,
-            "max_retries": 1,
+            "rewrite_id": 123,
+            "review_id": 456,
+            "job_id": job_id,
+            "seq": 2,
+            "message": "25%",
+        }
+        yield {
+            "type": "content",
+            "stage": "rewrite",
+            "round": 1,
+            "rewrite_id": 123,
+            "review_id": 456,
+            "job_id": job_id,
+            "seq": 3,
+            "delta": "chunk-1",
+        }
+        yield {
+            "type": "done",
+            "stage": "finalize",
+            "rewrite_id": 123,
+            "review_id": 456,
+            "job_id": job_id,
+            "seq": 4,
+            "status": "passed",
+            "passed": True,
         }
 
-    monkeypatch.setattr(reviews_api.workflow_service, "run_stream", fake_run_stream)
+    monkeypatch.setattr(reviews_api.workflow_job_service, "create_job", fake_create_job)
+    monkeypatch.setattr(reviews_api.workflow_job_service, "stream_events", fake_stream_events)
 
     style_id = _create_style()
 
@@ -111,6 +145,7 @@ def test_workflow_sse_events_include_obs(monkeypatch: pytest.MonkeyPatch) -> Non
 
     events = _decode_sse(chunks)
     assert events
+    assert [event["type"] for event in events] == ["stage", "progress", "content", "done"]
     for event in events:
         obs = event.get("obs")
         assert isinstance(obs, dict)

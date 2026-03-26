@@ -45,6 +45,11 @@ class RewriteRecord(SQLModel, table=True):
         description="状态: running/completed/failed"
     )
     error_message: Optional[str] = Field(default=None, description="错误信息")
+    workflow_job_id: Optional[int] = Field(
+        default=None,
+        index=True,
+        description="关联工作流任务ID",
+    )
 
     # 时间戳
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")

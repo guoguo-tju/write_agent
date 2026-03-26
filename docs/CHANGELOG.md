@@ -1,5 +1,122 @@
 # Changelog
 
+## 2026-03-26
+
+### Fixed
+- 修复小红书热点发布时间解析缺口：`cornerTagInfo.publish_time` 现在支持相对时间与中文日期表达（如 `昨天 17:21`、`前天`、`MM-DD`），避免刷新成功但列表被 7 天窗口误过滤为 0 条。
+- `cornerTagInfo` 发布时间统一复用 `_parse_publish_time` 解析链路，减少 MCP 返回格式轻微变化导致的漏数风险。
+- 修复 workflow job SSE 回放标记错误：`/api/reviews/workflow/jobs/{job_id}/stream` 现在会将订阅建立前的历史事件正确标记为 `is_replay=true`，仅实时新增事件标记为 `false`。
+- 修复审核流 detached 实体异常：`review_service` 完成阶段不再因 `ReviewRecord` 脱离 Session 导致 `Instance is not bound to a Session`，避免“本应 done 却落 error”。
+- 修复 stale 恢复 detached 异常：`resume_stale_jobs` 不再在提交后读取脱离 Session 的对象属性，避免恢复队列阶段抛错中断。
+
+### Changed
+- 小红书热点列表新增 `content` 字段：后端统一按“原文不超过 500 字直接返回，超过 500 字压缩为 500 字内摘要”产出，旧缓存数据自动回退为标题兜底。
+- 热点表格在“标题”后新增“内容”列，默认两行截断展示；鼠标悬停/聚焦时显示小弹窗查看完整内容摘要。
+- 详情补拉（`xhs_get_note_detail`）阶段新增正文提取，命中时可回填更完整的内容摘要。
+- 前端导航临时隐藏“热点选题”Tab（保留路由可直达），用于对外演示阶段降低未成熟功能暴露。
+- 新增“XHS 测试期静默运行”文档：中英文 README 增加 `login -> start -> status/logs -> stop` 运维流程与常见故障排查。
+- `.env.example` 补充本地 MCP 运维层可选变量说明：`XHS_MCP_NPX_PACKAGE`、`XHS_MCP_PORT`、`XHS_ENABLE_LOGGING`、`XHS_HEADLESS`（仅脚本读取，不影响应用配置解析）。
+- 改写工作流升级为 V2 任务化链路：新增异步任务执行与 SSE 订阅能力（job 创建、状态查询、事件流、恢复、取消），并保留旧 `POST /api/reviews/workflow` 桥接兼容。
+- 改写/审核流在中断场景新增终态收敛兜底：流被中断后不再长期残留 `running`，会自动落为 `failed` 并写入标准错误信息。
+- LLM 客户端新增统一超时配置：`OPENAI_TIMEOUT_SECONDS`（默认 `60s`），降低上游长时间无响应导致单 worker 长阻塞风险。
+- 应用生命周期新增运行期 stale-job 恢复巡检循环（默认每 15 秒），不再仅依赖“启动时恢复”。
+
+### Added
+- 新增回归测试：覆盖 `algovate_mcp` 返回 `cornerTagInfo=[{"type":"publish_time","text":"昨天 17:21"}]` 时，刷新后可正常入库并在热点列表可见。
+- 新增回归测试：覆盖内容摘要规则（短文本直出、超长文本压缩、空内容标题兜底）及 API `content` 字段返回。
+- 新增本地运维脚本 `scripts/xhs_mcp_ctl.sh`，支持 `login | start | stop | status | logs`，默认固定 `xhs-mcp@0.8.11` 且 `start` 走静默 headless 常驻。
+- 新增工作流任务持久化模型：`workflow_jobs`、`workflow_job_events`、`rewrite_chunks`，支持 checkpoint、事件重放与分片落库。
+- 新增工作流任务 API：`POST /api/reviews/workflow/jobs`、`GET /api/reviews/workflow/jobs/{job_id}`、`GET /api/reviews/workflow/jobs/{job_id}/stream`、`POST /api/reviews/workflow/jobs/{job_id}/resume`、`POST /api/reviews/workflow/jobs/{job_id}/cancel`、`GET /api/reviews/workflow/jobs/by-rewrite/{rewrite_id}`。
+- 新增前端任务化接入：`runWorkflowWithStream` 先创建 job 再订阅 stream，并在已存在 `rewrite_id` 且状态为 `running` 时自动尝试续连最近任务。
+- 新增回归测试：覆盖工作流任务 API 幂等键复用、任务状态语义、任务流 SSE 结构与旧接口桥接兼容。
+- 新增回归测试：覆盖 workflow job `is_replay` 回放标记语义、stale-job 恢复重排队语义、review 流完成阶段 detached 异常回归。
+- 新增系统性验收测试矩阵：业务逻辑单测（路由条件/评分阈值）、接口端到端回归（正常/降级/失败/人工介入）、Prompt 快照回归（base/revision）、流式并发中断一致性回归。
+- 新增测试文件：`tests/test_acceptance_api_matrix.py`、`tests/test_prompt_snapshot.py`、`tests/test_stream_interrupt_consistency.py`、`tests/snapshots/rewrite_prompt_base.txt`、`tests/snapshots/rewrite_prompt_revision.txt`。
+
+### Verification
+- `env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY NO_PROXY=127.0.0.1,localhost PYTHONPATH=src uv run pytest -q tests/test_xhs_trends_service.py` 通过（18 passed）。
+- `env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY NO_PROXY=127.0.0.1,localhost PYTHONPATH=src uv run pytest -q tests/test_xhs_trends_api.py` 通过（8 passed）。
+- 本地联调验证：`POST /api/xhs-trends/refresh` 返回 `errors={}`，随后 `GET /api/xhs-trends?category_key=tech&sort=hot&limit=5` 返回 `items_count=5`。
+- `env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY NO_PROXY=127.0.0.1,localhost PYTHONPATH=src uv run pytest -q tests/test_xhs_trends_service.py tests/test_xhs_trends_api.py` 通过（26 passed）。
+- `cd frontend && npm run build` 通过。
+- `bash -n scripts/xhs_mcp_ctl.sh` 通过。
+- `XHS_MCP_PORT=3011 bash scripts/xhs_mcp_ctl.sh start && XHS_MCP_PORT=3011 bash scripts/xhs_mcp_ctl.sh status && XHS_MCP_PORT=3011 bash scripts/xhs_mcp_ctl.sh logs 20 && XHS_MCP_PORT=3011 bash scripts/xhs_mcp_ctl.sh stop && XHS_MCP_PORT=3011 bash scripts/xhs_mcp_ctl.sh status` 通过（脚本全链路验证通过）。
+- `bash scripts/xhs_mcp_ctl.sh status` 通过（默认 `3000` 端口下可识别现有 xhs-mcp 监听与 `/health` 状态）。
+- `test -x scripts/xhs_mcp_ctl.sh && rg -n "xhs_mcp_ctl\\.sh|XHS_MCP_NPX_PACKAGE|XHS_HEADLESS|XHS_ENABLE_LOGGING" .env.example README.md docs/README.zh-CN.md` 通过。
+- `PYTHONPATH=src uv run pytest -q tests/test_api_regressions.py tests/test_observability_api.py` 通过（32 passed）。
+- `PYTHONPATH=src uv run pytest -q tests/test_workflow_service.py` 通过（12 passed）。
+- `PYTHONPATH=src uv run pytest -q` 通过（103 passed）。
+- `cd frontend && npm run build` 通过。
+- `PYTHONPATH=src uv run pytest -q tests/test_workflow_service.py tests/test_review_service.py -k "stream_events_marks_replay or stream_events_only_marks_new_rows_as_live or detached_error or resume_stale_jobs_requeues_running_jobs"` 通过（4 passed）。
+- `PYTHONPATH=src uv run pytest -q tests/test_workflow_service.py tests/test_api_regressions.py tests/test_observability_api.py` 通过（47 passed）。
+- `PYTHONPATH=src uv run pytest -q` 通过（107 passed）。
+- `PYTHONPATH=src uv run pytest -q tests/test_review_service.py tests/test_workflow_service.py -k "below_threshold or at_threshold or retry_boundary or zero_max_retries"` 通过（4 passed）。
+- `PYTHONPATH=src uv run pytest -q tests/test_acceptance_api_matrix.py` 通过（4 passed）。
+- `PYTHONPATH=src uv run pytest -q tests/test_prompt_snapshot.py` 通过（2 passed）。
+- `PYTHONPATH=src uv run pytest -q tests/test_stream_interrupt_consistency.py` 通过（2 passed）。
+- `PYTHONPATH=src uv run pytest -q` 通过（119 passed）。
+
+## 2026-03-25
+
+### Changed
+- 主 API 路由重新接入 `xhs_trends` 后端模块，`/api/xhs-trends*` 重新恢复可达。
+- 小红书热点补齐可观测节点注册：API、服务、SSE 事件与刷新状态查询均可通过 strict registry 校验。
+- 小红书热点刷新互斥升级为同主机跨进程文件锁，仍保留分类粒度与现有内存锁兜底。
+- 评论补拉新增“最近富化冷却”TTL，避免重复对近期已富化笔记再次拉取详情。
+- MCP HTTP 调用改为复用长连接会话与会话 ID，避免每次调用都重新执行初始化握手。
+- `.env.example` 的 XHS 配置精简为“最小暴露”模式：默认仅保留 `XHS_TRENDS_PROVIDER` 与 `XHS_MCP_URL`，其余参数改为代码默认值或按需注释启用。
+- 小红书热点刷新链路改为“分层批量”策略：`refresh` 仅做列表聚合入缓存，评论详情补拉改为异步阶段执行，降低同步刷新的外部调用峰值。
+- `POST /api/xhs-trends/refresh` 默认按“当前分类”执行（未传 `category_key` 时回退首个分类），并发命中同分类刷新时返回 `status=in_progress`。
+- 新增分类级刷新互斥，避免同分类重复刷新导致的请求放大与缓存覆盖竞争。
+- `http_api` 且缺少 `XHS_TRENDS_API_BASE_URL` 时不再伪成功，改为返回明确错误并写入 `fetch_error`。
+- XHS 外链安全收敛：后端对 `source_url` 做 `http/https` 白名单清洗；前端渲染前再做一次协议校验，非法链接显示 `--`。
+- 前端热点页修复分类/排序切换竞态：仅接受最新请求结果，切换时失效旧轮询与旧分析流，避免“旧数据回写”。
+- `.env.example` 与设置项更新：`XHS_TRENDS_COMMENT_DETAIL_LIMIT` 默认降至 `3`，新增详情补拉节流与重试参数（`XHS_MCP_DETAIL_*`）。
+- MCP 解析补强：`structuredContent.success=false` 视为失败，空结果改为显式错误，避免静默清空数据。
+
+### Added
+- 新增 `POST /api/xhs-trends/refresh/status` 查询接口，用于查看当前分类刷新锁状态与最近评论富化状态。
+- 新增回归测试覆盖：同分类并发刷新互斥、详情补拉限流重试、配置缺失错误语义、非法链接清洗、refresh `in_progress` 契约。
+- 新增回归测试覆盖：跨实例刷新互斥、评论富化 TTL 跳过、MCP 会话复用、刷新状态 API。
+
+### Verification
+- `env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy PYTHONPATH=src /Library/Frameworks/Python.framework/Versions/3.10/bin/pytest -q tests/test_xhs_trends_service.py tests/test_xhs_trends_api.py` 通过（24 passed）。
+- `PYTHONPATH=src uv run pytest -q tests/test_xhs_trends_service.py tests/test_xhs_trends_api.py`
+- `PYTHONPATH=src uv run pytest -q`
+- `cd frontend && npm run build`
+
+## 2026-03-24
+
+### Changed
+- 小红书热点服务新增 provider 分支：`algovate_mcp`（默认）与 `http_api`（兼容保留），`/api/xhs-trends*` 前后端接口路径与主交互保持不变。
+- `refresh` 流程切换为“分类关键词聚合 -> 去重标准化 -> 7天窗口与互动门槛过滤 -> hot/latest 排序 -> 热门条目补拉详情评论”。
+- 新增 xhs MCP 配置项并写入配置体系：`XHS_TRENDS_PROVIDER`、`XHS_MCP_URL`、`XHS_MCP_TIMEOUT_SECONDS`、`XHS_MCP_BROWSER_PATH`。
+- 分类配置支持 `keywords`，默认 5 类均预置 5 个检索词，缺省时回退为分类名。
+- 可观测注册新增节点 `SVC.XHS_TRENDS.MCP_CALL`，MCP 调用开始/成功/失败均产生日志事件并带错误码。
+- 刷新失败语义增强：`refresh.errors` 现在可返回真实失败原因（如 `xhs-mcp` 不可达、未登录），并保持缓存降级可读。
+- MCP 预检容错增强：`xhs_auth_status` 返回 `StatusCheckError` 时不再直接阻断刷新流程，改为记录告警后继续拉取真实列表。
+- MCP SSE 解码链路修复：优先按 UTF-8 解码 `text/event-stream`，并优化 fallback 反转义流程，修复中文标题乱码。
+- 本地预览调优：`XHS_MCP_TIMEOUT_SECONDS` 上调为 60 秒；本机 `.env` 临时设置 `XHS_TRENDS_LOOKBACK_DAYS=30` 以便小红书真实数据可视化验证（默认规范值仍为 7 天）。
+- 小红书刷新接口支持后台触发：`POST /api/xhs-trends/refresh` 新增请求字段 `background`（默认 `false`），`background=true` 时立即返回 `status=accepted` 并在后台执行刷新，避免前端 60s 超时阻断交互。
+- 热点页新增自动预取逻辑：首次进入或切分类且无数据时，自动触发后台批量预取并轮询当前分类数据，减少用户手动刷新操作。
+- 抓取动作可配置降噪：新增 `XHS_TRENDS_MAX_KEYWORDS_PER_CATEGORY`、`XHS_TRENDS_COMMENT_DETAIL_LIMIT`，支持降低单次刷新调用量，减少 `xhs-mcp` 频繁弹窗与超时概率。
+- 缓存降级显示优化：在 `http_api` provider 且无 base_url 的缓存回退路径中，清理历史 `fetch_error` 提示，避免长期显示陈旧错误。
+
+### Added
+- 新增 `tests/test_xhs_trends_service.py` 的 MCP 路径回归覆盖：关键词聚合去重、评论补拉、不可用降级缓存与 stale 状态断言。
+- 新增 MCP 容错与解码回归测试：`StatusCheckError` 不阻断刷新、SSE 中文内容 UTF-8 解码不乱码。
+- 新增 API 回归：`/api/xhs-trends/refresh` 背景模式返回契约测试（`status=accepted`）。
+
+### Verification
+- `env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy PYTHONPATH=src .venv/bin/pytest -q tests/test_xhs_trends_service.py tests/test_xhs_trends_api.py` 通过（11 passed）。
+- `env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy PYTHONPATH=src .venv/bin/pytest -q` 通过（85 passed）。
+- `cd frontend && npm run build` 通过。
+- `PYTHONPATH=src .venv/bin/pytest -q tests/test_xhs_trends_service.py -k "transient_status_check_error or extract_text_payload_from_sse_keeps_chinese_text or decode_mcp_http_payload_uses_utf8_for_sse"` 通过（3 passed）。
+- `curl --noproxy '*' -sS -X POST "http://127.0.0.1:8000/api/xhs-trends/refresh" -H "Content-Type: application/json" -d '{"category_key":"tech"}'` 返回 `refreshed_categories=["tech"]`。
+- `curl --noproxy '*' -sS "http://127.0.0.1:8000/api/xhs-trends?category_key=tech&sort=hot&limit=5"` 返回 `item_count=5`，标题中文正常显示。
+- `env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy PYTHONPATH=src .venv/bin/pytest -q tests/test_xhs_trends_service.py tests/test_xhs_trends_api.py` 通过（15 passed）。
+- `cd frontend && npm run build` 通过。
+
 ## 2026-03-23
 
 ### Changed
@@ -8,12 +125,28 @@
 - 中文 README 迁移后统一修正相对路径：English 入口、截图链接、规范入口链接均调整为 `docs/` 内可达路径。
 - 开发规范文档同步更新 changelog 路径约定：`AGENTS.md`、`docs/specs/development-spec-v1.md`、`docs/specs/verification-checklist.md` 改为引用 `docs/CHANGELOG.md`。
 - 新增根目录 `LICENSE`（MIT 正文），并将中英文 README 的许可证改为可点击链接，同时补充 MIT 徽章。
+- 新增小红书热点能力（`/api/xhs-trends`）：支持分类查询、分类热点列表、手动刷新、分类分析 SSE 流。
+- 新增「热点选题」独立前端 Tab（`/hot-topics`）：分类切换、热度/最新排序、10 条热点展示、自动分析与 `trace_id` 排障提示。
+- 小红书热点遵循固定规则：近 7 天窗口、最小互动门槛 100、热度公式 `like*1.0 + favorite*0.8 + comment*0.5`。
+- 可观测注册表新增 xhs 相关节点：API 入口、SSE 事件与服务链路（categories/get/refresh/analyze）。
+- `.env.example` 扩展 `XHS_TRENDS_*` 配置项，默认分类配置文件落位 `src/write_agent/config/xhs_trends_categories.json`。
+
+### Added
+- 新增后端服务 `src/write_agent/services/xhs_trends_service.py`，实现第三方授权数据抓取、缓存、排序过滤、规则/LLM 混合分析。
+- 新增后端路由 `src/write_agent/api/xhs_trends.py`，并接入主 API Router。
+- 新增前端页面 `frontend/src/pages/XhsTrendsPage.tsx` 与样式 `frontend/src/pages/XhsTrendsPage.css`。
+- 新增前端类型与 API 封装：`XhsTrendItem`、`XhsTrendListResponse`、`XhsTrendAnalysisSseEvent`、`XhsInspirationCard`、`XhsCommentTopic`。
+- 新增分类配置文件 `src/write_agent/config/xhs_trends_categories.json`（默认 5 类：科技/职场/美食/情感/个人成长）。
+- 新增回归测试：`tests/test_xhs_trends_service.py`、`tests/test_xhs_trends_api.py`。
 
 ### Verification
 - `test -f docs/README.zh-CN.md && test -f docs/CHANGELOG.md` 通过。
 - `test ! -f README.zh-CN.md && test ! -f CHANGELOG.md` 通过。
 - `rg -n "README\\.zh-CN\\.md|CHANGELOG\\.md" README.md AGENTS.md docs/specs/*.md docs/README.zh-CN.md` 可命中更新后的新路径引用。
 - `test -f LICENSE && rg -n "License: MIT|\\(\\./LICENSE\\)|\\(\\.\\./LICENSE\\)" README.md docs/README.zh-CN.md` 通过。
+- `env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy PYTHONPATH=src .venv/bin/pytest -q tests/test_xhs_trends_service.py tests/test_xhs_trends_api.py` 通过（8 passed）。
+- `env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy PYTHONPATH=src .venv/bin/pytest -q` 通过（82 passed）。
+- `cd frontend && npm run build` 通过。
 
 ## 2026-03-22
 

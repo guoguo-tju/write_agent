@@ -368,6 +368,7 @@ class RewriteService:
                 message="svc.rewrite.stream.start",
                 entities={"rewrite_id": rewrite_id},
             )
+            completed = False
             try:
                 rag_content = ""
                 rag_retrieved = []
@@ -512,6 +513,7 @@ class RewriteService:
                     entities={"rewrite_id": rewrite_id},
                     payload={"actual_words": actual_words},
                 )
+                completed = True
                 yield json.dumps(
                     {
                         "type": "done",
@@ -537,6 +539,21 @@ class RewriteService:
                         session.commit()
 
                 yield json.dumps({"type": "error", "message": str(e)})
+            finally:
+                if completed:
+                    return
+                with Session(engine) as session:
+                    record = session.get(RewriteRecord, rewrite_id)
+                    if not record:
+                        return
+                    if record.status == "running":
+                        record.status = "failed"
+                        if not record.error_message:
+                            record.error_message = (
+                                "E_WORKFLOW_STREAM_ABORTED: stream ended without done/error"
+                            )
+                        record.updated_at = datetime.now()
+                        session.commit()
 
     def get_rewrite(self, rewrite_id: int) -> Optional[RewriteRecord]:
         """获取改写记录"""

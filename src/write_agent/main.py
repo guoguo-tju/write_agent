@@ -26,6 +26,7 @@ from write_agent.services.github_trending_service import (
     RefreshInProgressError,
     get_github_trending_service,
 )
+from write_agent.services.workflow_job_service import get_workflow_job_service
 
 # 初始化日志
 settings = get_settings()
@@ -37,6 +38,7 @@ cover_media_url_prefix = settings.cover_media_url_prefix
 if not cover_media_url_prefix.startswith("/"):
     cover_media_url_prefix = f"/{cover_media_url_prefix}"
 cover_storage_dir.mkdir(parents=True, exist_ok=True)
+WORKFLOW_STALE_RECOVERY_INTERVAL_SECONDS = 15.0
 
 
 async def _github_trending_scheduler_loop():
@@ -92,14 +94,35 @@ async def _github_trending_scheduler_loop():
             )
 
 
+async def _workflow_stale_recovery_loop():
+    """运行期定时恢复长时间无心跳的 workflow job。"""
+    workflow_job_service = get_workflow_job_service()
+    while True:
+        await asyncio.sleep(WORKFLOW_STALE_RECOVERY_INTERVAL_SECONDS)
+        try:
+            recovered = workflow_job_service.resume_stale_jobs()
+            if recovered:
+                logger.warning("运行期恢复中断工作流任务: %s", recovered)
+        except Exception as error:
+            logger.error("运行期 workflow 恢复任务失败: %s", error, exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时执行
     validate_registry()
     logger.info("🚀 写作智能体 API 启动中...")
+    workflow_job_service = get_workflow_job_service()
+    workflow_job_service.start()
+    recovered_jobs = workflow_job_service.resume_stale_jobs()
+    if recovered_jobs:
+        logger.warning("检测并恢复中断工作流任务: %s", recovered_jobs)
     scheduler_task: asyncio.Task | None = asyncio.create_task(
         _github_trending_scheduler_loop()
+    )
+    workflow_recovery_task: asyncio.Task | None = asyncio.create_task(
+        _workflow_stale_recovery_loop()
     )
     try:
         yield
@@ -109,6 +132,11 @@ async def lifespan(app: FastAPI):
             scheduler_task.cancel()
             with suppress(asyncio.CancelledError):
                 await scheduler_task
+        if workflow_recovery_task:
+            workflow_recovery_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await workflow_recovery_task
+        workflow_job_service.stop()
         logger.info("👋 写作智能体 API 关闭")
 
 

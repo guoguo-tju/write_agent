@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import sys
 import uuid
+from types import SimpleNamespace
 
 # 与现有测试保持一致：显式挂载 venv site-packages 与 src 路径
 venv_path = os.path.join(
@@ -102,27 +103,237 @@ def test_workflow_invalid_target_words_returns_400() -> None:
     assert resp.json()["detail"] == "目标字数应在 100-10000 之间"
 
 
-def test_workflow_stream_sse_event_shape(monkeypatch: pytest.MonkeyPatch) -> None:
-    """工作流 SSE 至少包含 stage + done 事件，且结构可被前端解析。"""
+def test_workflow_jobs_create_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """相同幂等键重复创建任务时，应返回同一个 job_id。"""
     from write_agent.api import reviews as reviews_api
 
     client = TestClient(app)
     style_id = _create_style_for_rewrite_tests()
+    monkeypatch.setattr(reviews_api.workflow_job_service, "enqueue_job", lambda *_args, **_kwargs: None)
 
-    def fake_run_stream(**_kwargs):
-        yield {"type": "stage", "stage": "rewrite", "round": 1, "rewrite_id": 123}
-        yield {"type": "stage", "stage": "review", "round": 1, "rewrite_id": 123}
+    idempotency_key = f"idem-{uuid.uuid4().hex}"
+    payload = {
+        "source_article": "workflow test",
+        "style_id": style_id,
+        "target_words": 200,
+        "enable_rag": True,
+        "rag_top_k": 5,
+        "max_retries": 1,
+        "idempotency_key": idempotency_key,
+    }
+
+    first = client.post("/api/reviews/workflow/jobs", json=payload)
+    second = client.post("/api/reviews/workflow/jobs", json=payload)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    first_data = first.json()
+    second_data = second.json()
+    assert first_data["job_id"] == second_data["job_id"]
+    assert first_data["idempotent_hit"] is False
+    assert second_data["idempotent_hit"] is True
+    assert first_data["status"] == second_data["status"] == "queued"
+    assert first_data["checkpoint_seq"] == second_data["checkpoint_seq"] == 0
+
+    status = client.get(f"/api/reviews/workflow/jobs/{first_data['job_id']}")
+    assert status.status_code == 200
+    status_data = status.json()
+    assert status_data["job_id"] == first_data["job_id"]
+    assert status_data["status"] == "queued"
+    assert status_data["current_stage"] == "queued"
+    assert status_data["checkpoint_seq"] == 0
+
+
+def test_workflow_jobs_resume_and_cancel_semantics(monkeypatch: pytest.MonkeyPatch) -> None:
+    """任务恢复与取消应遵循基本语义。"""
+    from write_agent.api import reviews as reviews_api
+
+    client = TestClient(app)
+    style_id = _create_style_for_rewrite_tests()
+    monkeypatch.setattr(reviews_api.workflow_job_service, "enqueue_job", lambda *_args, **_kwargs: None)
+
+    created = client.post(
+        "/api/reviews/workflow/jobs",
+        json={
+            "source_article": "workflow test",
+            "style_id": style_id,
+            "target_words": 200,
+            "enable_rag": True,
+            "rag_top_k": 5,
+            "max_retries": 99,
+            "idempotency_key": f"resume-cancel-{uuid.uuid4().hex}",
+        },
+    )
+    assert created.status_code == 200
+    job_id = created.json()["job_id"]
+
+    resumed = client.post(f"/api/reviews/workflow/jobs/{job_id}/resume")
+    assert resumed.status_code == 200
+    resumed_data = resumed.json()
+    assert resumed_data["job_id"] == job_id
+    assert resumed_data["status"] == "queued"
+    assert resumed_data["resume_count"] == 1
+
+    cancelled = client.post(f"/api/reviews/workflow/jobs/{job_id}/cancel")
+    assert cancelled.status_code == 200
+    cancelled_data = cancelled.json()
+    assert cancelled_data["job_id"] == job_id
+    assert cancelled_data["status"] == "cancelled"
+    assert cancelled_data["current_stage"] == "cancelled"
+
+    blocked = client.post(f"/api/reviews/workflow/jobs/{job_id}/resume")
+    assert blocked.status_code == 404
+    assert "无法恢复" in blocked.json()["detail"]
+
+
+def test_workflow_job_stream_sse_event_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    """新任务 SSE 至少包含 stage/progress/content/done 事件，且结构可被前端解析。"""
+    from write_agent.api import reviews as reviews_api
+
+    client = TestClient(app)
+    style_id = _create_style_for_rewrite_tests()
+    monkeypatch.setattr(reviews_api.workflow_job_service, "enqueue_job", lambda *_args, **_kwargs: None)
+
+    def fake_stream_events(job_id: int, *, from_seq: int = 0, **_kwargs):
         yield {
-            "type": "done",
-            "status": "passed",
-            "passed": True,
+            "type": "stage",
+            "stage": "rewrite",
+            "round": 1,
             "rewrite_id": 123,
             "review_id": 456,
+            "job_id": job_id,
+            "seq": 1,
+        }
+        yield {
+            "type": "progress",
+            "stage": "rewrite",
             "round": 1,
-            "max_retries": 1,
+            "rewrite_id": 123,
+            "review_id": 456,
+            "job_id": job_id,
+            "seq": 2,
+            "message": "25%",
+        }
+        yield {
+            "type": "content",
+            "stage": "rewrite",
+            "round": 1,
+            "rewrite_id": 123,
+            "review_id": 456,
+            "job_id": job_id,
+            "seq": 3,
+            "delta": "chunk-1",
+        }
+        yield {
+            "type": "done",
+            "stage": "finalize",
+            "rewrite_id": 123,
+            "review_id": 456,
+            "job_id": job_id,
+            "seq": 4,
+            "status": "passed",
+            "passed": True,
         }
 
-    monkeypatch.setattr(reviews_api.workflow_service, "run_stream", fake_run_stream)
+    monkeypatch.setattr(reviews_api.workflow_job_service, "stream_events", fake_stream_events)
+
+    created = client.post(
+        "/api/reviews/workflow/jobs",
+        json={
+            "source_article": "workflow test",
+            "style_id": style_id,
+            "target_words": 200,
+            "enable_rag": False,
+            "max_retries": 1,
+            "idempotency_key": f"stream-shape-{uuid.uuid4().hex}",
+        },
+    )
+    assert created.status_code == 200
+    job_id = created.json()["job_id"]
+
+    with client.stream(
+        "GET",
+        f"/api/reviews/workflow/jobs/{job_id}/stream",
+        params={"from_seq": 0},
+    ) as resp:
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
+        chunks = [line for line in resp.iter_lines() if line and line.startswith("data: ")]
+
+    assert len(chunks) == 4
+    events = [eval_json(chunk[6:]) for chunk in chunks]
+    assert [event["type"] for event in events] == ["stage", "progress", "content", "done"]
+    assert events[0]["stage"] == "rewrite"
+    assert events[2]["delta"] == "chunk-1"
+    assert events[-1]["status"] == "passed"
+    for event in events:
+        assert event["job_id"] == job_id
+        obs = event.get("obs")
+        assert isinstance(obs, dict)
+        assert obs.get("trace_id")
+        assert obs.get("node_id")
+        assert obs.get("behavior_id")
+        assert obs.get("event_id")
+        assert obs.get("ts")
+
+
+def test_workflow_bridge_stream_sse_event_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    """旧工作流接口桥接后仍应返回可解析的 SSE 事件。"""
+    from write_agent.api import reviews as reviews_api
+
+    client = TestClient(app)
+    style_id = _create_style_for_rewrite_tests()
+    fake_job = SimpleNamespace(id=321, status="queued", rewrite_id=123, review_id=456, checkpoint_seq=0)
+    captured: dict[str, object] = {}
+
+    def fake_create_job(**kwargs):
+        captured.update(kwargs)
+        return fake_job, False
+
+    def fake_stream_events(job_id: int, *, from_seq: int = 0, **_kwargs):
+        yield {
+            "type": "stage",
+            "stage": "rewrite",
+            "round": 1,
+            "rewrite_id": 123,
+            "review_id": 456,
+            "job_id": job_id,
+            "seq": 1,
+        }
+        yield {
+            "type": "progress",
+            "stage": "rewrite",
+            "round": 1,
+            "rewrite_id": 123,
+            "review_id": 456,
+            "job_id": job_id,
+            "seq": 2,
+            "message": "25%",
+        }
+        yield {
+            "type": "content",
+            "stage": "rewrite",
+            "round": 1,
+            "rewrite_id": 123,
+            "review_id": 456,
+            "job_id": job_id,
+            "seq": 3,
+            "delta": "chunk-1",
+        }
+        yield {
+            "type": "done",
+            "stage": "finalize",
+            "rewrite_id": 123,
+            "review_id": 456,
+            "job_id": job_id,
+            "seq": 4,
+            "status": "passed",
+            "passed": True,
+        }
+
+    monkeypatch.setattr(reviews_api.workflow_job_service, "create_job", fake_create_job)
+    monkeypatch.setattr(reviews_api.workflow_job_service, "stream_events", fake_stream_events)
 
     with client.stream(
         "POST",
@@ -139,39 +350,45 @@ def test_workflow_stream_sse_event_shape(monkeypatch: pytest.MonkeyPatch) -> Non
         assert "text/event-stream" in resp.headers.get("content-type", "")
         chunks = [line for line in resp.iter_lines() if line and line.startswith("data: ")]
 
-    assert len(chunks) >= 3
+    assert captured["max_retries"] == 1
+    assert captured["rag_top_k"] == 3
+    assert captured["enable_rag"] is False
+    assert len(chunks) == 4
     events = [eval_json(chunk[6:]) for chunk in chunks]
-    assert events[0]["type"] == "stage"
-    assert events[0]["stage"] == "rewrite"
-    assert events[1]["type"] == "stage"
-    assert events[1]["stage"] == "review"
-    assert events[-1]["type"] == "done"
+    assert [event["type"] for event in events] == ["stage", "progress", "content", "done"]
     assert events[-1]["status"] == "passed"
-    assert events[-1]["rewrite_id"] == 123
-    assert events[-1]["review_id"] == 456
+    for event in events:
+        assert event["rewrite_id"] == 123
+        assert event["review_id"] == 456
 
 
-def test_workflow_api_forces_single_retry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """即使请求 max_retries 很大，API 层也应传递 1 给服务层。"""
+def test_workflow_bridge_forces_single_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """旧工作流桥接应把 max_retries 固定为 1。"""
     from write_agent.api import reviews as reviews_api
 
     client = TestClient(app)
     style_id = _create_style_for_rewrite_tests()
+    fake_job = SimpleNamespace(id=322, status="queued", rewrite_id=123, review_id=456, checkpoint_seq=0)
     captured: dict[str, object] = {}
 
-    def fake_run_stream(**kwargs):
+    def fake_create_job(**kwargs):
         captured.update(kwargs)
+        return fake_job, False
+
+    def fake_stream_events(job_id: int, *, from_seq: int = 0, **_kwargs):
         yield {
             "type": "done",
+            "stage": "finalize",
+            "rewrite_id": 123,
+            "review_id": 456,
+            "job_id": job_id,
+            "seq": 1,
             "status": "passed",
             "passed": True,
-            "rewrite_id": 1,
-            "review_id": 2,
-            "round": 1,
-            "max_retries": kwargs.get("max_retries"),
         }
 
-    monkeypatch.setattr(reviews_api.workflow_service, "run_stream", fake_run_stream)
+    monkeypatch.setattr(reviews_api.workflow_job_service, "create_job", fake_create_job)
+    monkeypatch.setattr(reviews_api.workflow_job_service, "stream_events", fake_stream_events)
 
     with client.stream(
         "POST",
@@ -193,20 +410,24 @@ def test_workflow_api_forces_single_retry(monkeypatch: pytest.MonkeyPatch) -> No
     assert captured["enable_rag"] is True
 
 
-def test_workflow_stream_runtime_error_yields_error_event(
+def test_workflow_bridge_runtime_error_yields_error_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """流式执行异常时，SSE 应输出 type=error 事件。"""
+    """旧工作流桥接在流式执行异常时，应输出 type=error 事件。"""
     from write_agent.api import reviews as reviews_api
 
     client = TestClient(app)
     style_id = _create_style_for_rewrite_tests()
+    fake_job = SimpleNamespace(id=323, status="queued", rewrite_id=123, review_id=456, checkpoint_seq=0)
 
-    def fake_run_stream(**_kwargs):
+    def fake_create_job(**_kwargs):
+        return fake_job, False
+
+    def fake_stream_events(*_args, **_kwargs):
         raise RuntimeError("boom")
-        yield  # pragma: no cover
 
-    monkeypatch.setattr(reviews_api.workflow_service, "run_stream", fake_run_stream)
+    monkeypatch.setattr(reviews_api.workflow_job_service, "create_job", fake_create_job)
+    monkeypatch.setattr(reviews_api.workflow_job_service, "stream_events", fake_stream_events)
 
     with client.stream(
         "POST",

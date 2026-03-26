@@ -183,13 +183,16 @@ class ReviewService:
                 if not record:
                     yield json.dumps({"type": "error", "message": "审核记录不存在"})
                     return
-            bind_entities({"review_id": review_id, "rewrite_id": record.rewrite_id})
+                rewrite_id = record.rewrite_id
+                review_content = record.content
+            bind_entities({"review_id": review_id, "rewrite_id": rewrite_id})
             emit_obs_event(
                 level="INFO",
                 message="svc.review.stream.start",
-                entities={"review_id": review_id, "rewrite_id": record.rewrite_id},
+                entities={"review_id": review_id, "rewrite_id": rewrite_id},
             )
 
+            completed = False
             try:
             # 构造 Prompt
                 user_prompt = f"""请审核以下文章：
@@ -198,7 +201,7 @@ class ReviewService:
 {style_context}
 
 ## 待审核文章
-{record.content}
+{review_content}
 
 请输出审核结果（JSON格式）："""
 
@@ -248,9 +251,10 @@ class ReviewService:
                 emit_obs_event(
                     level="INFO",
                     message="svc.review.stream.done",
-                    entities={"review_id": review_id, "rewrite_id": record.rewrite_id},
+                    entities={"review_id": review_id, "rewrite_id": rewrite_id},
                     payload={"passed": passed, "total_score": total_score},
                 )
+                completed = True
                 yield json.dumps({
                     "type": "done",
                     "passed": passed,
@@ -277,6 +281,21 @@ class ReviewService:
                         session.commit()
 
                 yield json.dumps({"type": "error", "message": str(e)})
+            finally:
+                if completed:
+                    return
+                with Session(engine) as session:
+                    record = session.get(ReviewRecord, review_id)
+                    if not record:
+                        return
+                    if record.status == "running":
+                        record.status = "failed"
+                        if not record.error_message:
+                            record.error_message = (
+                                "E_WORKFLOW_STREAM_ABORTED: stream ended without done/error"
+                            )
+                        record.updated_at = datetime.now()
+                        session.commit()
 
     def get_review(self, review_id: int) -> Optional[ReviewRecord]:
         """获取审核记录"""

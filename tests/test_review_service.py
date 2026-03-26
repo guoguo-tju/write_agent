@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 import sys
 import os
+import json
 
 # 添加 venv 的 site-packages 到 Python 路径
 venv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".venv", "lib", "python3.10", "site-packages")
@@ -142,6 +143,96 @@ class TestReviewService:
         record2 = service.create_review(rewrite_id=1, content="内容2")
         assert record2.round == 2
 
+    @patch("write_agent.services.llm_service.get_llm_service")
+    def test_review_stream_returns_done_without_detached_error(self, mock_get_llm, test_db):
+        """review 流在完成后不应因 detached 实体访问抛异常。"""
+        class _FakeLLM:
+            def stream(self, *args, **kwargs):
+                yield (
+                    '{"quality_scores":{"total":42,"authenticity":8},'
+                    '"passed":true,"reason":"通过"}'
+                )
+
+        fake_llm = _FakeLLM()
+        mock_get_llm.return_value = fake_llm
+
+        import write_agent.services.review_service as rs
+        rs.engine = test_db
+
+        service = rs.ReviewService()
+
+        record = service.create_review(
+            rewrite_id=1,
+            content="这是一篇测试文章",
+        )
+        events = [json.loads(chunk) for chunk in service.review(record.id, style_context="test-style")]
+
+        assert events[-1]["type"] == "done"
+        assert events[-1]["passed"] is True
+
+    @patch("write_agent.services.llm_service.get_llm_service")
+    def test_review_total_score_below_threshold_forces_failed(self, mock_get_llm, test_db):
+        """即使模型 returned passed=true，总分低于 35 也应强制失败。"""
+
+        class _FakeLLM:
+            def stream(self, *args, **kwargs):
+                yield (
+                    '{"quality_scores":{"total":34,"authenticity":8},'
+                    '"passed":true,"reason":"模型误判为通过"}'
+                )
+
+        fake_llm = _FakeLLM()
+        mock_get_llm.return_value = fake_llm
+
+        import write_agent.services.review_service as rs
+        rs.engine = test_db
+        service = rs.ReviewService()
+
+        record = service.create_review(rewrite_id=1, content="阈值测试文本")
+        events = [json.loads(chunk) for chunk in service.review(record.id, style_context="test-style")]
+        done = events[-1]
+
+        assert done["type"] == "done"
+        assert done["total_score"] == 34
+        assert done["passed"] is False
+
+        with Session(test_db) as session:
+            saved = session.get(ReviewRecord, record.id)
+            assert saved is not None
+            assert saved.result == "failed"
+            assert saved.status == "completed"
+
+    @patch("write_agent.services.llm_service.get_llm_service")
+    def test_review_total_score_at_threshold_can_pass(self, mock_get_llm, test_db):
+        """总分达到阈值且 passed=true 时，结果应通过。"""
+
+        class _FakeLLM:
+            def stream(self, *args, **kwargs):
+                yield (
+                    '{"quality_scores":{"total":35,"authenticity":8},'
+                    '"passed":true,"reason":"达到门槛"}'
+                )
+
+        fake_llm = _FakeLLM()
+        mock_get_llm.return_value = fake_llm
+
+        import write_agent.services.review_service as rs
+        rs.engine = test_db
+        service = rs.ReviewService()
+
+        record = service.create_review(rewrite_id=1, content="阈值边界测试文本")
+        events = [json.loads(chunk) for chunk in service.review(record.id, style_context="test-style")]
+        done = events[-1]
+
+        assert done["type"] == "done"
+        assert done["total_score"] == 35
+        assert done["passed"] is True
+
+        with Session(test_db) as session:
+            saved = session.get(ReviewRecord, record.id)
+            assert saved is not None
+            assert saved.result == "passed"
+            assert saved.status == "completed"
 
 class TestWritingStyleModel:
     """WritingStyle 模型测试"""

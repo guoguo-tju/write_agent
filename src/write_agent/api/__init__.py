@@ -9,6 +9,7 @@ from .reviews import router as reviews_router
 from .covers import router as covers_router
 from .cover_styles import router as cover_styles_router
 from .github_trends import router as github_trends_router
+from .xhs_trends import router as xhs_trends_router
 from .observability import router as observability_router
 
 # 创建主路由
@@ -20,6 +21,7 @@ api_router.include_router(materials_router)
 api_router.include_router(rewrites_router)
 api_router.include_router(reviews_router)
 api_router.include_router(github_trends_router)
+api_router.include_router(xhs_trends_router)
 api_router.include_router(observability_router)
 # cover_styles_router 需要放在 covers_router 之前，避免 /covers/styles 被 /covers/{cover_id} 匹配
 api_router.include_router(cover_styles_router)

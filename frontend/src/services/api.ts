@@ -17,6 +17,18 @@ import type {
   GithubTrendWeekOption,
   GithubTrendAddMaterialResponse,
   GithubTrendRewriteBuildResponse,
+  XhsTrendCategory,
+  XhsTrendItem,
+  XhsTrendListResponse,
+  XhsTrendRefreshResponse,
+  XhsTrendAnalysisDone,
+  XhsTrendAnalysisStreamCallbacks,
+  XhsTrendAnalysisStreamEvent,
+  WorkflowLoopRequest,
+  WorkflowJobCreateResponse,
+  WorkflowJobStatusResponse,
+  WorkflowStreamCallbacks,
+  WorkflowStreamEvent,
   WorkflowSnapshot,
   WorkflowStepStatus,
 } from "../types";
@@ -40,6 +52,18 @@ export type {
   GithubTrendWeekOption,
   GithubTrendAddMaterialResponse,
   GithubTrendRewriteBuildResponse,
+  XhsTrendCategory,
+  XhsTrendItem,
+  XhsTrendListResponse,
+  XhsTrendRefreshResponse,
+  XhsTrendAnalysisDone,
+  XhsTrendAnalysisStreamCallbacks,
+  XhsTrendAnalysisStreamEvent,
+  WorkflowLoopRequest,
+  WorkflowJobCreateResponse,
+  WorkflowJobStatusResponse,
+  WorkflowStreamCallbacks,
+  WorkflowStreamEvent,
   WorkflowSnapshot,
   WorkflowStepStatus,
 };
@@ -448,6 +472,105 @@ export const buildGithubTrendItemRewrite = async (
     },
   );
   return response.data;
+};
+
+// ========== 小红书热点 ==========
+
+export const getXhsTrendCategories = async (): Promise<XhsTrendCategory[]> => {
+  const response = await api.get<XhsTrendCategory[]>("/api/xhs-trends/categories");
+  return response.data;
+};
+
+export const getXhsTrends = async (
+  categoryKey: string,
+  sort: "hot" | "latest" = "hot",
+  limit = 10,
+): Promise<XhsTrendListResponse> => {
+  const params = new URLSearchParams({
+    category_key: categoryKey,
+    sort,
+    limit: String(limit),
+  });
+  const response = await api.get<XhsTrendListResponse>(`/api/xhs-trends?${params.toString()}`);
+  return response.data;
+};
+
+export interface RefreshXhsTrendsRequestOptions {
+  background?: boolean;
+  timeoutMs?: number;
+}
+
+export const refreshXhsTrends = async (
+  categoryKey?: string,
+  options: RefreshXhsTrendsRequestOptions = {},
+): Promise<XhsTrendRefreshResponse> => {
+  const response = await api.post<XhsTrendRefreshResponse>(
+    "/api/xhs-trends/refresh",
+    {
+      category_key: categoryKey || undefined,
+      background: options.background ?? false,
+    },
+    {
+      timeout: options.timeoutMs ?? 60000,
+    },
+  );
+  return response.data;
+};
+
+export const streamXhsTrendAnalysis = (
+  categoryKey: string,
+  callbacks: XhsTrendAnalysisStreamCallbacks = {},
+): EventSource => {
+  const eventSource = new EventSource(
+    `${API_BASE_URL}/api/xhs-trends/analysis/stream?${new URLSearchParams({
+      category_key: categoryKey,
+    })}`,
+  );
+
+  eventSource.onmessage = (event) => {
+    const data = parseSseJson(event.data);
+    if (!data) {
+      return;
+    }
+
+    const streamEvent = data as unknown as XhsTrendAnalysisStreamEvent;
+    switch (streamEvent.type) {
+      case "start":
+        callbacks.onStart?.(streamEvent);
+        break;
+      case "progress":
+        callbacks.onProgress?.(streamEvent);
+        break;
+      case "done":
+        if (streamEvent.data) {
+          callbacks.onDone?.(streamEvent.data);
+        }
+        eventSource.close();
+        break;
+      case "error": {
+        const obs = (data.obs || {}) as {
+          trace_id?: string;
+          node_id?: string;
+          error_code?: string;
+        };
+        callbacks.onError?.(
+          sseErrorWithObs(data, "Unknown error"),
+          String(obs.trace_id || data.trace_id || ""),
+        );
+        eventSource.close();
+        break;
+      }
+      default:
+        break;
+    }
+  };
+
+  eventSource.onerror = () => {
+    callbacks.onError?.("Connection error");
+    eventSource.close();
+  };
+
+  return eventSource;
 };
 
 // ========== 改写 ==========
@@ -859,61 +982,13 @@ export const startCover = async (
 
 // ========== 完整工作流 ==========
 
-interface WorkflowStreamEvent {
-  type: string;
-  stage?: "rewrite" | "review";
-  round?: number;
-  rewrite_id?: number;
-  review_id?: number;
-  delta?: string;
-  message?: string;
-  passed?: boolean;
-  score?: number;
-  reason?: string;
-  status?: "passed" | "reached_max_loops";
-  retry_count?: number;
-  max_retries?: number;
-  actual_words?: number;
-}
-
-interface WorkflowStreamCallbacks {
-  onStage?: (event: WorkflowStreamEvent) => void;
-  onProgress?: (event: WorkflowStreamEvent) => void;
-  onContent?: (event: WorkflowStreamEvent) => void;
-  onReviewDone?: (event: WorkflowStreamEvent) => void;
-  onDone?: (event: WorkflowStreamEvent) => void;
-  onError?: (event: WorkflowStreamEvent) => void;
-}
-
-export interface WorkflowLoopRequest {
-  source_article: string;
-  style_id: number;
-  target_words?: number;
-  enable_rag?: boolean;
-  rag_top_k?: number;
-}
-
-export const runWorkflowWithStream = async (
-  request: WorkflowLoopRequest,
+const readWorkflowSse = async (
+  response: Response,
   callbacks: WorkflowStreamCallbacks = {},
-  signal?: AbortSignal,
 ): Promise<WorkflowStreamEvent[]> => {
-  const response = await fetch(`${API_BASE_URL}/api/reviews/workflow`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      source_article: request.source_article,
-      style_id: request.style_id,
-      target_words: request.target_words || 1000,
-      enable_rag: request.enable_rag ?? false,
-      rag_top_k: request.rag_top_k || 3,
-      max_retries: 1,
-    }),
-    signal,
-  });
-
   if (!response.ok || !response.body) {
-    throw new Error(`Workflow request failed: ${response.status}`);
+    const message = await response.text();
+    throw new Error(message || `Workflow request failed: ${response.status}`);
   }
 
   const reader = response.body.getReader();
@@ -971,7 +1046,61 @@ export const runWorkflowWithStream = async (
   }
 
   return events;
-}
+};
+
+export const createWorkflowJob = async (
+  request: WorkflowLoopRequest,
+  signal?: AbortSignal,
+): Promise<WorkflowJobCreateResponse> => {
+  const response = await api.post<WorkflowJobCreateResponse>(
+    "/api/reviews/workflow/jobs",
+    {
+      source_article: request.source_article,
+      style_id: request.style_id,
+      target_words: request.target_words ?? 1000,
+      enable_rag: request.enable_rag ?? false,
+      rag_top_k: request.rag_top_k ?? 3,
+      max_retries: request.max_retries ?? 1,
+      idempotency_key: request.idempotency_key,
+      force_new: request.force_new ?? false,
+    },
+    {
+      signal,
+    },
+  );
+  return response.data;
+};
+
+export const getLatestWorkflowJobByRewrite = async (
+  rewriteId: number,
+): Promise<WorkflowJobStatusResponse> => {
+  const response = await api.get<WorkflowJobStatusResponse>(
+    `/api/reviews/workflow/jobs/by-rewrite/${rewriteId}`,
+  );
+  return response.data;
+};
+
+export const streamWorkflowJobEvents = async (
+  jobId: number,
+  callbacks: WorkflowStreamCallbacks = {},
+  signal?: AbortSignal,
+  fromSeq = 0,
+): Promise<WorkflowStreamEvent[]> => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/reviews/workflow/jobs/${jobId}/stream?from_seq=${fromSeq}`,
+    { signal },
+  );
+  return readWorkflowSse(response, callbacks);
+};
+
+export const runWorkflowWithStream = async (
+  request: WorkflowLoopRequest,
+  callbacks: WorkflowStreamCallbacks = {},
+  signal?: AbortSignal,
+): Promise<WorkflowStreamEvent[]> => {
+  const { job_id } = await createWorkflowJob(request, signal);
+  return streamWorkflowJobEvents(job_id, callbacks, signal, 0);
+};
 
 export const runFullWorkflow = async (
   sourceArticle: string,
