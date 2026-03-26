@@ -89,35 +89,6 @@ npm run dev
 
 说明：若未配置 `SILICONFLOW_API_KEY`，主流程可正常体验，但写作阶段的 RAG 检索与引用展示会受限。
 
-## 热点选题（XHS）静默运行（测试期推荐）
-
-为减少“手动刷新热点”时浏览器反复弹窗，建议使用仓库内置运维脚本：
-
-```bash
-# 1) 首次可视登录（仅这一步允许弹窗扫码）
-bash scripts/xhs_mcp_ctl.sh login
-
-# 2) 静默常驻启动（默认 headless）
-bash scripts/xhs_mcp_ctl.sh start
-
-# 3) 查看状态 / 健康检查
-bash scripts/xhs_mcp_ctl.sh status
-
-# 4) 查看日志
-bash scripts/xhs_mcp_ctl.sh logs
-
-# 5) 停止服务
-bash scripts/xhs_mcp_ctl.sh stop
-```
-
-推荐流程：`login -> start -> 热点页手动刷新验证 -> status/logs -> stop`。
-
-常见问题排查：
-- 端口冲突：`status` 显示端口已占用，先释放 `3000` 端口再 `start`。
-- 未登录：热点页报未登录时，重新执行 `login` 完成扫码。
-- MCP 不可达：`health` 不可用时，先看 `logs` 判断是否启动失败。
-- 浏览器依赖缺失：按日志提示执行 `npx xhs-mcp browser` 安装 Chromium。
-
 ## 项目结构
 
 ```text

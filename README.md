@@ -88,35 +88,6 @@ npm run dev
 
 Note: without `SILICONFLOW_API_KEY`, the main flow still runs, but writing-time RAG retrieval/citation is limited.
 
-## XHS Hot Topics Silent MCP Workflow (Recommended for local testing)
-
-To reduce repeated browser popups while manually refreshing XHS hot topics, use the helper script:
-
-```bash
-# 1) One-time visible login (this is the only step that opens a browser window)
-bash scripts/xhs_mcp_ctl.sh login
-
-# 2) Start MCP in background (headless by default)
-bash scripts/xhs_mcp_ctl.sh start
-
-# 3) Check process, port and health
-bash scripts/xhs_mcp_ctl.sh status
-
-# 4) Inspect logs
-bash scripts/xhs_mcp_ctl.sh logs
-
-# 5) Stop MCP
-bash scripts/xhs_mcp_ctl.sh stop
-```
-
-Recommended flow: `login -> start -> validate manual refresh on Hot Topics page -> status/logs -> stop`.
-
-Troubleshooting:
-- Port conflict: if `status` shows the port is occupied, release port `3000` first.
-- Not logged in: run `login` again and finish QR scan.
-- MCP unavailable: check `logs` when `/health` is unavailable.
-- Browser dependency missing: run `npx xhs-mcp browser` to install Chromium.
-
 ## Project Structure
 
 ```text
