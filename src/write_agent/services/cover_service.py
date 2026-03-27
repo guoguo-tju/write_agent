@@ -98,13 +98,24 @@ class CoverService:
         return ", ".join(selected)
 
     @staticmethod
-    def _build_prompt_fallback(keywords: str, style_description: str) -> str:
+    def _build_prompt_fallback(
+        keywords: str,
+        style_description: str,
+        title: str = "",
+    ) -> str:
         """当LLM不可用时，构造可直接用于生图的英文Prompt。"""
         style_hint = (
             f"style hints: {style_description}; " if style_description else ""
         )
+        title_anchor = title.strip()[:120]
+        title_hint = (
+            f"primary title anchor: {title_anchor}; "
+            if title_anchor
+            else ""
+        )
         return (
             "A clean editorial cover illustration, "
+            f"{title_hint}"
             f"topic keywords: {keywords}; "
             f"{style_hint}"
             "cinematic composition, strong focal subject, "
@@ -150,7 +161,8 @@ class CoverService:
     async def generate_prompt(
         self,
         content: str,
-        style: Optional[WritingStyle] = None
+        style: Optional[WritingStyle] = None,
+        title: Optional[str] = None,
     ) -> str:
         """
         基于文章内容和风格生成图片Prompt
@@ -186,7 +198,10 @@ class CoverService:
                 message="svc.cover.generate_prompt.start",
                 payload={"content_len": len(content), "has_style": bool(style)},
             )
+            title_summary = (title or "").strip()
             extract_prompt = f"""请从以下文章中提取3-5个核心主题关键词，这些关键词将用于生成封面图片。
+标题（重点锚点）：
+{title_summary[:120] or "（无标题）"}
 
 文章内容：
 {content[:2000]}
@@ -220,6 +235,7 @@ class CoverService:
 
             cover_prompt = f"""请为文章生成一个适合的封面图片描述词（英文）。
 
+标题（主锚点，优先参考）：{title_summary[:120] or "（无标题）"}
 文章主题关键词：{keywords}
 {style_description}
 
@@ -247,12 +263,14 @@ class CoverService:
                 generated_prompt = self._build_prompt_fallback(
                     keywords=keywords,
                     style_description=style_description,
+                    title=title_summary,
                 )
             except Exception as exc:
                 logger.warning("封面Prompt生成失败，使用本地兜底策略: %s", exc)
                 generated_prompt = self._build_prompt_fallback(
                     keywords=keywords,
                     style_description=style_description,
+                    title=title_summary,
                 )
 
             logger.debug(f"封面Prompt已生成，长度: {len(generated_prompt)} 字符")

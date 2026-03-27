@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-03-27
+
+### Changed
+- 封面页新增“内容来源”切换：支持“目标文章”与“手动输入”，手动输入模式可直接填写标题与正文生成封面。
+- 手动输入模式支持与原有一致的三种生成模式（自动、风格匹配、自定义），并保持原 `/api/covers` 与 `/api/covers/stream` 协议兼容。
+- 自动封面 Prompt 生成新增标题主锚点策略：优先参考标题，正文作为补充上下文；LLM 超时兜底 Prompt 同步纳入标题优先语义。
+- 手动输入场景下，自定义 Prompt 会自动追加标题/正文摘要上下文（追加而非覆盖）。
+- 封面 SSE 事件新增可选字段 `source_mode`（`manual|rewrite`），前端兼容解析。
+
+### Added
+- 新增后端接口 `POST /api/covers/manual-rewrite`：接收 `title/content`，自动复用或创建默认风格 `手动输入`，并创建 `rewrite_id` 返回给前端复用后续封面链路。
+- 手动输入创建的 rewrite 采用“标题 + 正文摘要”入库策略：`source_article=title`，`final_content=content_excerpt`（最多 1200 字），状态直接置为 `completed`。
+- 可观测新增节点注册：`API.COVERS.MANUAL_REWRITE`。
+- 新增回归测试：手动 rewrite 创建成功、默认风格复用、标题/正文长度校验、标题优先兜底 Prompt 校验。
+
+### Verification
+- `PYTHONPATH=src uv run pytest -q tests/test_cover_prompt_template.py tests/test_cover_prompt_timeout.py tests/test_api_regressions.py -k "manual_cover_rewrite or generate_prompt_falls_back_when_llm_is_slow or render_style_prompt"` 通过（5 passed）。
+- `PYTHONPATH=src uv run pytest -q tests/test_api_regressions.py tests/test_cover_prompt_template.py tests/test_cover_prompt_timeout.py` 通过（31 passed）。
+- `PYTHONPATH=src uv run pytest -q` 通过（121 passed）。
+- `cd frontend && npm run build` 通过。
+
 ## 2026-03-26
 
 ### Fixed

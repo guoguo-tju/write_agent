@@ -6,6 +6,8 @@ import type {
   ReviewRecord,
   ManualEditRecord,
   CoverRecord,
+  ManualCoverRewriteRequest,
+  ManualCoverRewriteResponse,
   CoverStyle,
   SSEMessage,
   PaginatedResponse,
@@ -41,6 +43,8 @@ export type {
   ReviewRecord,
   ManualEditRecord,
   CoverRecord,
+  ManualCoverRewriteRequest,
+  ManualCoverRewriteResponse,
   CoverStyle,
   SSEMessage,
   PaginatedResponse,
@@ -855,6 +859,16 @@ export interface CoverRequest {
   custom_prompt?: string;
   size?: "2.35:1" | "1:1" | "9:16" | "3:4" | "1k" | "2k" | "4k";
 }
+
+export const createManualCoverRewrite = async (
+  payload: ManualCoverRewriteRequest,
+): Promise<ManualCoverRewriteResponse> => {
+  const response = await api.post<ManualCoverRewriteResponse>(
+    "/api/covers/manual-rewrite",
+    payload,
+  );
+  return response.data;
+};
 
 export const getCover = async (id: number): Promise<CoverRecord> => {
   const response = await api.get<CoverRecord>(`/api/covers/${id}`);

@@ -154,11 +154,18 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.covers-v2-source-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .covers-v2-ratio-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .covers-v2-mode-grid button,
+.covers-v2-source-grid button,
 .covers-v2-ratio-grid button {
   border: 1px solid #2a3d34;
   border-radius: 10px;
@@ -170,12 +177,14 @@
 }
 
 .covers-v2-mode-grid button:hover,
+.covers-v2-source-grid button:hover,
 .covers-v2-ratio-grid button:hover {
   border-color: #3e5f50;
   color: #dce8dc;
 }
 
 .covers-v2-mode-grid button.active,
+.covers-v2-source-grid button.active,
 .covers-v2-ratio-grid button.active {
   border-color: #f0d798;
   color: #f0d798;

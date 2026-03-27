@@ -15,6 +15,7 @@ import { AppTopNav } from "../components";
 import { formatMessage, useLanguage } from "../i18n";
 import {
   coverWithStream,
+  createManualCoverRewrite,
   createCoverStyle,
   deleteCoverStyle,
   getCover,
@@ -30,6 +31,7 @@ import {
 import "./CoversPage.css";
 
 type PromptMode = "auto" | "style" | "custom";
+type CoverSourceMode = "rewrite" | "manual";
 type StreamStatus = "idle" | "running" | "success" | "error";
 
 const ratioOptions = [
@@ -99,8 +101,12 @@ export const CoversPage: React.FC = () => {
     null,
   );
   const [selectedStyleId, setSelectedStyleId] = useState<number | null>(null);
+  const [coverSourceMode, setCoverSourceMode] =
+    useState<CoverSourceMode>("rewrite");
   const [promptMode, setPromptMode] = useState<PromptMode>("auto");
   const [customPrompt, setCustomPrompt] = useState("");
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualContent, setManualContent] = useState("");
   const [selectedRatio, setSelectedRatio] =
     useState<(typeof ratioOptions)[number]["value"]>("2.35:1");
 
@@ -212,8 +218,59 @@ export const CoversPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   };
 
-  const handleGenerateCover = () => {
-    if (!selectedRewriteId) {
+  const handleGenerateCover = async () => {
+    let rewriteId = selectedRewriteId;
+
+    if (coverSourceMode === "manual") {
+      const title = manualTitle.trim();
+      const content = manualContent.trim();
+      if (title.length < 2) {
+        setStreamStatus("error");
+        setStreamMessage(coversText.needManualTitle);
+        return;
+      }
+      if (content.length < 20) {
+        setStreamStatus("error");
+        setStreamMessage(coversText.needManualContent);
+        return;
+      }
+
+      try {
+        setStreamStatus("running");
+        setStreamMessage(coversText.manualCreateStart);
+        const created = await createManualCoverRewrite({ title, content });
+        rewriteId = created.rewrite_id;
+        setSelectedRewriteId(created.rewrite_id);
+        syncRewriteQuery(created.rewrite_id);
+        setRewrites((previous) => {
+          const next = previous.filter((item) => item.id !== created.rewrite_id);
+          return [
+            {
+              id: created.rewrite_id,
+              source_article: created.title,
+              final_content: created.content_excerpt,
+              style_id: 0,
+              target_words: 0,
+              actual_words: created.content_excerpt.length,
+              enable_rag: false,
+              rag_top_k: 0,
+              status: "completed",
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            ...next,
+          ];
+        });
+      } catch (error) {
+        const detail =
+          error instanceof Error ? error.message : coversText.manualCreateFailed;
+        setStreamStatus("error");
+        setStreamMessage(detail || coversText.manualCreateFailed);
+        return;
+      }
+    }
+
+    if (!rewriteId) {
       setStreamStatus("error");
       setStreamMessage(coversText.needArticle);
       return;
@@ -232,7 +289,7 @@ export const CoversPage: React.FC = () => {
     closeCurrentStream();
 
     const request: CoverRequest = {
-      rewrite_id: selectedRewriteId,
+      rewrite_id: rewriteId,
       size: selectedRatio,
     };
     if (promptMode === "style" && selectedStyleId) {
@@ -369,8 +426,15 @@ export const CoversPage: React.FC = () => {
   };
 
   const canGenerate =
-    !!selectedRewriteId &&
     !isGenerating &&
+    !(
+      coverSourceMode === "rewrite" &&
+      !selectedRewriteId
+    ) &&
+    !(
+      coverSourceMode === "manual" &&
+      (manualTitle.trim().length < 2 || manualContent.trim().length < 20)
+    ) &&
     !(promptMode === "style" && !selectedStyleId) &&
     !(promptMode === "custom" && !customPrompt.trim());
 
@@ -386,25 +450,66 @@ export const CoversPage: React.FC = () => {
           </div>
 
           <div className="covers-v2-field">
-            <label>{coversText.targetArticle}</label>
-            <select
-              value={selectedRewriteId || ""}
-              onChange={(event) => {
-                const rewriteId = event.target.value
-                  ? Number(event.target.value)
-                  : null;
-                setSelectedRewriteId(rewriteId);
-                syncRewriteQuery(rewriteId);
-              }}
-            >
-              <option value="">{coversText.chooseArticle}</option>
-              {rewrites.map((rewrite) => (
-                <option key={rewrite.id} value={rewrite.id}>
-                  #{rewrite.id} - {summarize(rewrite.source_article)}
-                </option>
-              ))}
-            </select>
+            <label>{coversText.sourceLabel}</label>
+            <div className="covers-v2-source-grid">
+              <button
+                className={coverSourceMode === "rewrite" ? "active" : ""}
+                onClick={() => setCoverSourceMode("rewrite")}
+                type="button"
+              >
+                {coversText.sourceRewrite}
+              </button>
+              <button
+                className={coverSourceMode === "manual" ? "active" : ""}
+                onClick={() => setCoverSourceMode("manual")}
+                type="button"
+              >
+                {coversText.sourceManual}
+              </button>
+            </div>
           </div>
+
+          {coverSourceMode === "rewrite" ? (
+            <div className="covers-v2-field">
+              <label>{coversText.targetArticle}</label>
+              <select
+                value={selectedRewriteId || ""}
+                onChange={(event) => {
+                  const rewriteId = event.target.value
+                    ? Number(event.target.value)
+                    : null;
+                  setSelectedRewriteId(rewriteId);
+                  syncRewriteQuery(rewriteId);
+                }}
+              >
+                <option value="">{coversText.chooseArticle}</option>
+                {rewrites.map((rewrite) => (
+                  <option key={rewrite.id} value={rewrite.id}>
+                    #{rewrite.id} - {summarize(rewrite.source_article)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <>
+              <div className="covers-v2-field">
+                <label>{coversText.manualTitleLabel}</label>
+                <input
+                  value={manualTitle}
+                  onChange={(event) => setManualTitle(event.target.value)}
+                  placeholder={coversText.manualTitlePlaceholder}
+                />
+              </div>
+              <div className="covers-v2-field">
+                <label>{coversText.manualContentLabel}</label>
+                <textarea
+                  value={manualContent}
+                  onChange={(event) => setManualContent(event.target.value)}
+                  placeholder={coversText.manualContentPlaceholder}
+                />
+              </div>
+            </>
+          )}
 
           <div className="covers-v2-field">
             <label>{coversText.modeLabel}</label>
@@ -566,7 +671,11 @@ export const CoversPage: React.FC = () => {
             ) : (
               <div className="covers-v2-preview-placeholder">
                 <ImageIcon size={40} />
-                <p>{tx("请选择文章并生成封面", "Select an article and generate a cover")}</p>
+                <p>
+                  {coverSourceMode === "manual"
+                    ? coversText.manualHint
+                    : tx("请选择文章并生成封面", "Select an article and generate a cover")}
+                </p>
               </div>
             )}
           </div>

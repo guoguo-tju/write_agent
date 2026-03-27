@@ -26,10 +26,11 @@ from fastapi.testclient import TestClient
 import pytest
 from sqlmodel import Session
 from sqlmodel import SQLModel
+from sqlmodel import select
 
 from write_agent.core.database import engine
 from write_agent.main import app
-from write_agent.models import Material, WritingStyle
+from write_agent.models import Material, RewriteRecord, WritingStyle
 
 
 def setup_module() -> None:
@@ -546,6 +547,85 @@ def test_covers_by_rewrites_returns_empty_list_for_missing_ids() -> None:
     data = resp.json()
     assert data["total"] == 0
     assert data["items"] == []
+
+
+def test_create_manual_cover_rewrite_creates_default_style_once() -> None:
+    """手动输入接口应创建/复用默认风格，并返回可用 rewrite_id。"""
+    client = TestClient(app)
+    title = f"手动标题-{uuid.uuid4().hex[:6]}"
+    content = "这是一段用于手动封面测试的正文内容，长度超过二十个字符。\n第二段内容用于验证换行保留。"
+
+    with Session(engine) as session:
+        before_count = len(
+            session.exec(
+                select(WritingStyle).where(WritingStyle.name == "手动输入")
+            ).all()
+        )
+
+    first = client.post(
+        "/api/covers/manual-rewrite",
+        json={"title": title, "content": content},
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+    assert first_payload["title"] == title
+    assert first_payload["rewrite_id"] > 0
+    assert len(first_payload["content_excerpt"]) <= 1200
+
+    with Session(engine) as session:
+        count_after_first = len(
+            session.exec(
+                select(WritingStyle).where(WritingStyle.name == "手动输入")
+            ).all()
+        )
+
+    second = client.post(
+        "/api/covers/manual-rewrite",
+        json={"title": title + "-2", "content": content},
+    )
+    assert second.status_code == 200
+    second_payload = second.json()
+    assert second_payload["rewrite_id"] > 0
+    assert second_payload["rewrite_id"] != first_payload["rewrite_id"]
+
+    with Session(engine) as session:
+        count_after_second = len(
+            session.exec(
+                select(WritingStyle).where(WritingStyle.name == "手动输入")
+            ).all()
+        )
+        assert count_after_first in {before_count, before_count + 1}
+        assert count_after_second == count_after_first
+
+        rewrite = session.get(RewriteRecord, first_payload["rewrite_id"])
+        assert rewrite is not None
+        assert rewrite.source_article == title
+        assert rewrite.status == "completed"
+        assert rewrite.final_content == content
+        assert rewrite.actual_words == len(content)
+
+
+def test_create_manual_cover_rewrite_validates_title_and_content() -> None:
+    """手动输入接口应校验标题与正文长度。"""
+    client = TestClient(app)
+
+    bad_title = client.post(
+        "/api/covers/manual-rewrite",
+        json={"title": "短", "content": "这是一段明显超过二十个字符的正文内容。"},
+    )
+    assert bad_title.status_code == 400
+    bad_title_data = bad_title.json()
+    assert bad_title_data["detail"] == "标题至少 2 个字符"
+    assert bad_title_data.get("trace_id")
+
+    bad_content = client.post(
+        "/api/covers/manual-rewrite",
+        json={"title": "有效标题", "content": "正文太短"},
+    )
+    assert bad_content.status_code == 400
+    bad_content_data = bad_content.json()
+    assert bad_content_data["detail"] == "正文至少 20 个字符"
+    assert bad_content_data.get("trace_id")
 
 
 def _create_style_for_rewrite_tests() -> int:

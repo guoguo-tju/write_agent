@@ -9,7 +9,10 @@ from typing import Optional, Literal
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlmodel import Session, select
 
+from write_agent.core.database import engine
+from write_agent.models import RewriteRecord, WritingStyle
 from write_agent.observability import attach_obs_meta, bind_entities, obs_scope
 from write_agent.services.cover_service import get_cover_service
 from write_agent.services.rewrite_service import get_rewrite_service
@@ -18,6 +21,10 @@ from write_agent.services.style_service import get_style_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/covers", tags=["covers"])
+MANUAL_STYLE_NAME = "手动输入"
+MANUAL_CONTENT_EXCERPT_LIMIT = 1200
+MANUAL_TITLE_MIN_CHARS = 2
+MANUAL_CONTENT_MIN_CHARS = 20
 
 
 class GenerateCoverRequest(BaseModel):
@@ -39,6 +46,21 @@ class CoverResponse(BaseModel):
     error_message: Optional[str]
     created_at: str
     updated_at: str
+
+
+class CreateManualCoverRewriteRequest(BaseModel):
+    """手动输入封面内容请求。"""
+
+    title: str
+    content: str
+
+
+class CreateManualCoverRewriteResponse(BaseModel):
+    """手动输入封面内容响应。"""
+
+    rewrite_id: int
+    title: str
+    content_excerpt: str
 
 
 class _SafePromptVars(dict):
@@ -135,6 +157,106 @@ def _append_non_render_meta_guard(prompt: str) -> str:
     return f"{prompt}\n\n{guard}".strip()
 
 
+def _normalize_manual_text(raw: str) -> str:
+    return re.sub(r"\s+", " ", (raw or "")).strip()
+
+
+def _truncate_content_excerpt(raw: str, limit: int = MANUAL_CONTENT_EXCERPT_LIMIT) -> str:
+    return (raw or "").strip()[:limit]
+
+
+def _ensure_manual_style(session: Session) -> WritingStyle:
+    statement = (
+        select(WritingStyle)
+        .where(WritingStyle.name == MANUAL_STYLE_NAME)
+        .order_by(WritingStyle.created_at.asc())
+    )
+    existing = session.exec(statement).first()
+    if existing:
+        return existing
+
+    style = WritingStyle(
+        name=MANUAL_STYLE_NAME,
+        style_description=json.dumps(
+            {
+                "persona": "手动输入封面模式",
+                "overall_summary": "用于封面手动标题与正文输入的系统默认风格。",
+                "opening_pattern": "标题主锚点优先，正文补充上下文。",
+            },
+            ensure_ascii=False,
+        ),
+        tags="system,manual_cover",
+    )
+    session.add(style)
+    session.commit()
+    session.refresh(style)
+    return style
+
+
+def _resolve_source_mode(style: Optional[WritingStyle]) -> str:
+    if style and style.name == MANUAL_STYLE_NAME:
+        return "manual"
+    return "rewrite"
+
+
+def _append_manual_context_to_custom_prompt(
+    prompt: str,
+    *,
+    title: str,
+    content: str,
+) -> str:
+    base = (prompt or "").strip()
+    title_hint = _normalize_manual_text(title)[:120]
+    content_hint = _normalize_manual_text(content)[:500]
+    if not title_hint and not content_hint:
+        return base
+    context = (
+        "Context for grounding (title is primary):\n"
+        f"- Title (primary anchor): {title_hint or 'N/A'}\n"
+        f"- Content excerpt (secondary): {content_hint or 'N/A'}"
+    )
+    if context in base:
+        return base
+    return f"{base}\n\n{context}".strip()
+
+
+@router.post("/manual-rewrite", response_model=CreateManualCoverRewriteResponse)
+async def create_manual_cover_rewrite(request: CreateManualCoverRewriteRequest):
+    """手动输入标题/正文，生成可复用的 rewrite_id。"""
+    with obs_scope("API.COVERS.MANUAL_REWRITE", "HTTP_SYNC"):
+        title = _normalize_manual_text(request.title)
+        content = (request.content or "").strip()
+
+        if len(title) < MANUAL_TITLE_MIN_CHARS:
+            raise HTTPException(status_code=400, detail="标题至少 2 个字符")
+        if len(_normalize_manual_text(content)) < MANUAL_CONTENT_MIN_CHARS:
+            raise HTTPException(status_code=400, detail="正文至少 20 个字符")
+
+        content_excerpt = _truncate_content_excerpt(content)
+        with Session(engine) as session:
+            manual_style = _ensure_manual_style(session)
+            rewrite = RewriteRecord(
+                source_article=title,
+                final_content=content,
+                style_id=manual_style.id,
+                target_words=min(10000, max(100, len(content))),
+                actual_words=len(content),
+                enable_rag=False,
+                rag_top_k=0,
+                status="completed",
+            )
+            session.add(rewrite)
+            session.commit()
+            session.refresh(rewrite)
+
+        bind_entities({"rewrite_id": rewrite.id})
+        return CreateManualCoverRewriteResponse(
+            rewrite_id=rewrite.id,
+            title=title,
+            content_excerpt=content_excerpt,
+        )
+
+
 async def _generate_cover_events(request: GenerateCoverRequest):
     """封面生成的通用 SSE 事件流。"""
     cover_service = get_cover_service()
@@ -143,10 +265,16 @@ async def _generate_cover_events(request: GenerateCoverRequest):
     bind_entities({"rewrite_id": request.rewrite_id})
 
     cover_id: Optional[int] = None
+    source_mode = "rewrite"
     try:
         # 1. 获取改写内容
         yield _sse_event(
-            {"type": "start", "message": "正在获取文章内容...", "rewrite_id": request.rewrite_id},
+            {
+                "type": "start",
+                "message": "正在获取文章内容...",
+                "source_mode": source_mode,
+                "rewrite_id": request.rewrite_id,
+            },
             entities={"rewrite_id": request.rewrite_id},
         )
         rewrite = rewrite_service.get_rewrite(request.rewrite_id)
@@ -156,20 +284,44 @@ async def _generate_cover_events(request: GenerateCoverRequest):
             raise ValueError("改写内容为空，无法生成封面")
 
         content = rewrite.final_content
+        title = rewrite.source_article
         writing_style_id = rewrite.style_id
+        writing_style = (
+            style_service.get_style_by_id(writing_style_id)
+            if writing_style_id
+            else None
+        )
+        source_mode = _resolve_source_mode(writing_style)
 
         # 2. 确定使用哪个 Prompt
         if request.custom_prompt:
             # 优先级1: 用户自定义 Prompt
             prompt = request.custom_prompt
+            if source_mode == "manual":
+                prompt = _append_manual_context_to_custom_prompt(
+                    prompt,
+                    title=title,
+                    content=content,
+                )
             yield _sse_event(
-                {"type": "prompt_done", "prompt": prompt, "source": "custom", "rewrite_id": request.rewrite_id},
+                {
+                    "type": "prompt_done",
+                    "prompt": prompt,
+                    "source": "custom",
+                    "source_mode": source_mode,
+                    "rewrite_id": request.rewrite_id,
+                },
                 entities={"rewrite_id": request.rewrite_id},
             )
         elif request.style_id:
             # 优先级2: 使用封面风格模板
             yield _sse_event(
-                {"type": "prompt", "message": "正在加载封面风格...", "rewrite_id": request.rewrite_id},
+                {
+                    "type": "prompt",
+                    "message": "正在加载封面风格...",
+                    "source_mode": source_mode,
+                    "rewrite_id": request.rewrite_id,
+                },
                 entities={"rewrite_id": request.rewrite_id},
             )
             from write_agent.core.database import engine
@@ -182,7 +334,7 @@ async def _generate_cover_events(request: GenerateCoverRequest):
                     raise ValueError(f"封面风格不存在: {request.style_id}")
 
                 content_summary = content[:500] if content else ""
-                title_summary = rewrite.source_article[:100] if rewrite.source_article else ""
+                title_summary = title[:100] if title else ""
                 prompt = _render_style_prompt(
                     template=cover_style.prompt_template,
                     content=content_summary,
@@ -193,6 +345,7 @@ async def _generate_cover_events(request: GenerateCoverRequest):
                         "type": "prompt_done",
                         "prompt": prompt,
                         "source": "style",
+                        "source_mode": source_mode,
                         "style_name": cover_style.name,
                         "rewrite_id": request.rewrite_id,
                     }
@@ -200,21 +353,36 @@ async def _generate_cover_events(request: GenerateCoverRequest):
         else:
             # 优先级3: 自动生成 Prompt
             yield _sse_event(
-                {"type": "style", "message": "正在分析写作风格...", "rewrite_id": request.rewrite_id},
+                {
+                    "type": "style",
+                    "message": "正在分析写作风格...",
+                    "source_mode": source_mode,
+                    "rewrite_id": request.rewrite_id,
+                },
                 entities={"rewrite_id": request.rewrite_id},
             )
-            if writing_style_id:
-                writing_style = style_service.get_style_by_id(writing_style_id)
-            else:
-                writing_style = None
-
             yield _sse_event(
-                {"type": "prompt", "message": "正在生成封面Prompt...", "rewrite_id": request.rewrite_id},
+                {
+                    "type": "prompt",
+                    "message": "正在生成封面Prompt...",
+                    "source_mode": source_mode,
+                    "rewrite_id": request.rewrite_id,
+                },
                 entities={"rewrite_id": request.rewrite_id},
             )
-            prompt = await cover_service.generate_prompt(content, writing_style)
+            prompt = await cover_service.generate_prompt(
+                content=content,
+                style=writing_style,
+                title=title,
+            )
             yield _sse_event(
-                {"type": "prompt_done", "prompt": prompt, "source": "auto", "rewrite_id": request.rewrite_id},
+                {
+                    "type": "prompt_done",
+                    "prompt": prompt,
+                    "source": "auto",
+                    "source_mode": source_mode,
+                    "rewrite_id": request.rewrite_id,
+                },
                 entities={"rewrite_id": request.rewrite_id},
             )
 
@@ -225,7 +393,12 @@ async def _generate_cover_events(request: GenerateCoverRequest):
 
         # 3. 保存记录（generating状态）
         yield _sse_event(
-            {"type": "saving", "message": "正在保存记录...", "rewrite_id": request.rewrite_id},
+            {
+                "type": "saving",
+                "message": "正在保存记录...",
+                "source_mode": source_mode,
+                "rewrite_id": request.rewrite_id,
+            },
             entities={"rewrite_id": request.rewrite_id},
         )
         cover = cover_service.save_cover(
@@ -240,7 +413,13 @@ async def _generate_cover_events(request: GenerateCoverRequest):
 
         # 4. 调用即梦 API 生成图片
         yield _sse_event(
-            {"type": "generating", "message": "正在生成图片...", "rewrite_id": request.rewrite_id, "cover_id": cover_id},
+            {
+                "type": "generating",
+                "message": "正在生成图片...",
+                "source_mode": source_mode,
+                "rewrite_id": request.rewrite_id,
+                "cover_id": cover_id,
+            },
             entities={"rewrite_id": request.rewrite_id, "cover_id": cover_id},
         )
         result = await cover_service.generate_image(
@@ -250,7 +429,13 @@ async def _generate_cover_events(request: GenerateCoverRequest):
         )
         persisted_image_url = result["image_url"]
         yield _sse_event(
-            {"type": "saving", "message": "正在归档封面图片...", "rewrite_id": request.rewrite_id, "cover_id": cover_id},
+            {
+                "type": "saving",
+                "message": "正在归档封面图片...",
+                "source_mode": source_mode,
+                "rewrite_id": request.rewrite_id,
+                "cover_id": cover_id,
+            },
             entities={"rewrite_id": request.rewrite_id, "cover_id": cover_id},
         )
         try:
@@ -283,6 +468,7 @@ async def _generate_cover_events(request: GenerateCoverRequest):
                 "type": "done",
                 "id": cover_id,
                 "rewrite_id": request.rewrite_id,
+                "source_mode": source_mode,
                 "image_url": persisted_image_url,
                 "size": result.get("size", generation_size),
                 "requested_size": request.size,
@@ -304,7 +490,13 @@ async def _generate_cover_events(request: GenerateCoverRequest):
             except Exception:
                 logger.error("更新封面失败状态时发生异常", exc_info=True)
         yield _sse_event(
-            {"type": "error", "message": str(e), "rewrite_id": request.rewrite_id, "cover_id": cover_id},
+            {
+                "type": "error",
+                "message": str(e),
+                "source_mode": source_mode,
+                "rewrite_id": request.rewrite_id,
+                "cover_id": cover_id,
+            },
             entities={"rewrite_id": request.rewrite_id, "cover_id": cover_id},
         )
 

@@ -192,6 +192,15 @@ NODE_REGISTRY: dict[str, NodeDef] = {
         description="封面 SSE 事件发射",
         in_out_contract="cover event -> sse",
     ),
+    "API.COVERS.MANUAL_REWRITE": NodeDef(
+        node_id="N032",
+        node_key="API.COVERS.MANUAL_REWRITE",
+        module_path="write_agent.api.covers",
+        function_name="create_manual_cover_rewrite",
+        owner="backend",
+        description="手动封面输入转 rewrite 记录入口",
+        in_out_contract="title/content -> rewrite_id",
+    ),
     "API.STYLES.EXTRACT": NodeDef(
         node_id="N040",
         node_key="API.STYLES.EXTRACT",

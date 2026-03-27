@@ -44,7 +44,9 @@ def test_generate_prompt_falls_back_when_llm_is_slow(monkeypatch) -> None:
         service.generate_prompt(
             content="这是一个足够长的测试文章内容，用于验证封面自动提示词在模型超时场景下会走本地兜底策略。",
             style=None,
+            title="测试标题锚点",
         )
     )
 
     assert "A clean editorial cover illustration" in prompt
+    assert "primary title anchor: 测试标题锚点" in prompt

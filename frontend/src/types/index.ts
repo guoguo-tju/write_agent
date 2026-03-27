@@ -237,6 +237,17 @@ export interface CoverRecord {
   updated_at: string;
 }
 
+export interface ManualCoverRewriteRequest {
+  title: string;
+  content: string;
+}
+
+export interface ManualCoverRewriteResponse {
+  rewrite_id: number;
+  title: string;
+  content_excerpt: string;
+}
+
 // 封面风格
 export interface CoverStyle {
   id: number;
@@ -295,6 +306,7 @@ export interface SSEMessage {
   image_url?: string;
   size?: string;
   prompt?: string;
+  source_mode?: "manual" | "rewrite";
   obs?: ObservabilityMeta;
   trace_id?: string;
   node_id?: string;
