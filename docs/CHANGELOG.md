@@ -3,6 +3,8 @@
 ## 2026-03-28
 
 ### Changed
+- 文档收敛：移除 `docs/diagrams/write-agent-content-workflow.drawio`，主流程图交付统一为 `mmd + svg`，避免双轨维护带来的同步成本。
+- 中文首页补齐流程图展示：`docs/README.zh-CN.md` 新增 `./diagrams/write-agent-content-workflow.svg` 嵌入，与英文 `README.md` 保持一致。
 - 规范治理升级：`docs/specs/development-spec-v1.md` 升级为 `v1.1`，新增“主链路语义变化必须同步更新 Mermaid/SVG 流程图”的 MUST 规则，并将流程图同步纳入 DoD（未同步视为未完成）。
 - 验收清单升级：`docs/specs/verification-checklist.md` 升级为 `v1.1`，新增 `3.5 主链路变更附加验收`（文件存在、README 引用、mmdc 导出、kroki 兜底、SVG 类型校验）。
 - `README.md` 首页新增 `docs/diagrams/write-agent-content-workflow.svg` 展示入口，确保主流程图在 GitHub 首页可见并纳入可达性校验。
@@ -16,6 +18,8 @@
 - 新增 Mermaid 源文件 `docs/diagrams/write-agent-content-workflow.mmd` 与导出图 `docs/diagrams/write-agent-content-workflow.svg`，用于投屏与外部分享。
 
 ### Verification
+- `rg -n "write-agent-content-workflow\\.svg" README.md docs/README.zh-CN.md` 通过。
+- `test ! -f docs/diagrams/write-agent-content-workflow.drawio` 通过。
 - `rg -n "Workflow Diagram Sync Rule|主链路变更附加验收|write-agent-content-workflow\\.mmd|v1\\.1" docs/specs/development-spec-v1.md docs/specs/verification-checklist.md` 通过。
 - `test -f docs/diagrams/write-agent-content-workflow.mmd && test -f docs/diagrams/write-agent-content-workflow.svg` 通过。
 - `rg -n "write-agent-content-workflow\\.svg" README.md` 通过。

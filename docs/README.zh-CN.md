@@ -16,6 +16,10 @@
 
 ## 主要流程与页面截图
 
+### 端到端流程图
+
+![Write Agent 内容主流程图](./diagrams/write-agent-content-workflow.svg)
+
 1. **改写**：输入原文、选择风格、设置目标长度（预设 `100-8000`，默认 `500`）并流式输出。首页会实时提示闭环阶段（首次写稿、首次主编审核、二次写稿、二次审核、最终状态）。顶部导航支持全站 `CN / EN` 切换，选择会持久化到 `localStorage`（`write_agent_lang`）。
 
 ![改写页面](./screenshots/rewrite-page-v2.png)
