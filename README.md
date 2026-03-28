@@ -16,6 +16,10 @@ A full-stack AI writing agent for style extraction, rewriting, review, cover gen
 
 ## Core Workflow and Screenshots
 
+### End-to-End Workflow Diagram
+
+![Write Agent Content Workflow](docs/diagrams/write-agent-content-workflow.svg)
+
 1. **Rewrite**: input source text, pick style, set target length (`100-8000` preset options, default `500`), stream output. Home also shows real-time loop stage hints (first draft, first review, second draft, second review, final state). The top nav supports site-wide `CN / EN` switching (saved in `localStorage` as `write_agent_lang`).
 
 ![Rewrite Page](docs/screenshots/rewrite-page-v2.png)

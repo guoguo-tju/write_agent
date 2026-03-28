@@ -1,7 +1,7 @@
-# Write Agent 全栈开发规范 SPEC（v1）
+# Write Agent 全栈开发规范 SPEC（v1.1）
 
-- Spec Version: `v1`
-- Last Updated: `2026-03-22`
+- Spec Version: `v1.1`
+- Last Updated: `2026-03-28`
 - Status: `Active`
 - Owners: `Write Agent Maintainers`
 
@@ -114,6 +114,17 @@
   - 前端改动：`frontend` build 必须通过。
 - 若改动涉及接口或行为契约，必须补对应回归测试。
 
+## Workflow Diagram Sync Rule (MUST)
+- 当“主链路行为”发生语义变化时，必须同步更新：
+  - `docs/diagrams/write-agent-content-workflow.mmd`
+  - `docs/diagrams/write-agent-content-workflow.svg`
+- 若 README 首页展示图引用路径发生变化，必须同步更新 `README.md` 中的引用并保证可达。
+- 主链路语义变化判定范围（命中任一即触发）：
+  - 热点入口：GitHub Trends / XHS Trends 到写作入口的流程语义变化。
+  - 改写与审核闭环：任务创建、重试策略、状态流转、SSE 进度语义。
+  - 封面链路：目标文章/手动输入来源、封面生成触发路径。
+  - 排版链路：从改写/审核/封面到排版导入语义。
+
 ## Incident SOP (MUST)
 收到“功能不符合预期”时，按以下固定流程排查：
 1. 从前端错误提示或响应头获取 `trace_id`。
@@ -132,6 +143,7 @@
 3. 验收通过（按分层清单执行并记录结果）。
 4. 文档更新（必要时更新规范/README）。
 5. `docs/CHANGELOG.md` 更新（含 Verification）。
+6. 若本次变更命中“主链路语义变化”，流程图 `mmd/svg` 已同步并完成导出验收；否则视为未完成。
 
 ## Important Public API / Interface Changes
 本规范本身不新增运行时 API。  
@@ -169,4 +181,5 @@
 - 规范变更后，相关入口文档（`AGENTS.md` / README 链接）必须保持可达。
 
 ## Change Log
+- `v1.1` (2026-03-28): 新增“主链路变更必须同步 Mermaid/SVG 流程图”硬规则，并将流程图同步纳入 DoD。
 - `v1` (2026-03-22): 首次建立全栈开发规范，覆盖架构、可观测性、兼容性、验收与排障流程。

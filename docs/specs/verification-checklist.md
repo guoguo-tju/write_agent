@@ -1,7 +1,7 @@
 # Write Agent 验收清单（Verification Checklist）
 
-- Version: `v1`
-- Last Updated: `2026-03-22`
+- Version: `v1.1`
+- Last Updated: `2026-03-28`
 - Reference Spec: `docs/specs/development-spec-v1.md`
 
 ## 1. Purpose
@@ -40,6 +40,35 @@ PYTHONPATH=src uv run pytest -q
 ### 3.4 仅文档改动（必做）
 - 校验新增链接可达（文件存在、路径正确）。
 - 校验规范与 changelog 已同步更新。
+
+### 3.5 主链路变更附加验收（必做）
+当变更命中主链路范围（改写/审核/封面/排版/热点入口）时，除上述分类命令外，必须补充执行：
+
+1. 文件存在性校验
+```bash
+test -f docs/diagrams/write-agent-content-workflow.mmd && test -f docs/diagrams/write-agent-content-workflow.svg
+```
+
+2. README 展示图引用可达校验（若首页展示开启）
+```bash
+rg -n "write-agent-content-workflow\\.svg" README.md
+```
+
+3. SVG 导出标准命令
+```bash
+npx -y @mermaid-js/mermaid-cli -i docs/diagrams/write-agent-content-workflow.mmd -o docs/diagrams/write-agent-content-workflow.svg
+```
+
+若本地 `mmdc` 失败，使用兜底命令：
+```bash
+curl -fsSL -X POST https://kroki.io/mermaid/svg -H 'Content-Type: text/plain; charset=utf-8' --data-binary @docs/diagrams/write-agent-content-workflow.mmd -o docs/diagrams/write-agent-content-workflow.svg
+```
+
+4. 导出结果类型校验
+```bash
+file docs/diagrams/write-agent-content-workflow.svg
+```
+返回中必须包含 `SVG` 类型信息。
 
 ## 4. Observability Contract Spot-check (Manual)
 以下检查至少完成一轮：

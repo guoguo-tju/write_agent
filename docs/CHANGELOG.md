@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-03-28
+
+### Changed
+- 规范治理升级：`docs/specs/development-spec-v1.md` 升级为 `v1.1`，新增“主链路语义变化必须同步更新 Mermaid/SVG 流程图”的 MUST 规则，并将流程图同步纳入 DoD（未同步视为未完成）。
+- 验收清单升级：`docs/specs/verification-checklist.md` 升级为 `v1.1`，新增 `3.5 主链路变更附加验收`（文件存在、README 引用、mmdc 导出、kroki 兜底、SVG 类型校验）。
+- `README.md` 首页新增 `docs/diagrams/write-agent-content-workflow.svg` 展示入口，确保主流程图在 GitHub 首页可见并纳入可达性校验。
+- 重绘 `docs/diagrams/write-agent-content-workflow.drawio` 视觉样式：改为分区泳道布局（输入来源/改写审核闭环/封面排版/可观测排障）、统一深色科技风卡片与分支连线配色，提升演示可读性与美观度。
+- 将流程图进一步升级为「科技发布会风」演示版：强化舞台感标题、霓虹高对比色与主分支粗线连结，提升投屏场景下的视觉冲击与远距可读性。
+
+### Added
+- 新增独立流程图文档 `docs/workflow-overview.zh-CN.md`，沉淀「内容生产主链」单总图讲解版本（中文业务词命名，适配面试讲解与团队沟通）。
+- 新增 Mermaid 总流程图：覆盖可选热点入口（GitHub/XHS）、改写与主编审核闭环、封面来源双分支（目标文章/手动标题正文）与排版输出链路。
+- 新增 draw.io 展示版文件 `docs/diagrams/write-agent-content-workflow.drawio`，采用深色科技风并与 Mermaid 语义对齐。
+- 新增 Mermaid 源文件 `docs/diagrams/write-agent-content-workflow.mmd` 与导出图 `docs/diagrams/write-agent-content-workflow.svg`，用于投屏与外部分享。
+
+### Verification
+- `rg -n "Workflow Diagram Sync Rule|主链路变更附加验收|write-agent-content-workflow\\.mmd|v1\\.1" docs/specs/development-spec-v1.md docs/specs/verification-checklist.md` 通过。
+- `test -f docs/diagrams/write-agent-content-workflow.mmd && test -f docs/diagrams/write-agent-content-workflow.svg` 通过。
+- `rg -n "write-agent-content-workflow\\.svg" README.md` 通过。
+- `npx -y @mermaid-js/mermaid-cli -i docs/diagrams/write-agent-content-workflow.mmd -o docs/diagrams/write-agent-content-workflow.svg` 失败（退出码 1，触发兜底流程）。
+- `test -f docs/workflow-overview.zh-CN.md && test -f docs/diagrams/write-agent-content-workflow.drawio` 通过。
+- `rg -n "GitHub 热点|XHS 热点|启动改写任务|主编审核|手动标题\\+正文|trace_id" docs/workflow-overview.zh-CN.md` 通过。
+- `rg -n "GitHub 热点|XHS 热点|启动改写任务|主编审核|手动封面|trace_id" docs/diagrams/write-agent-content-workflow.drawio` 通过。
+- `curl -fsSL -X POST https://kroki.io/mermaid/svg -H 'Content-Type: text/plain; charset=utf-8' --data-binary @docs/diagrams/write-agent-content-workflow.mmd -o docs/diagrams/write-agent-content-workflow.svg` 通过。
+- `file docs/diagrams/write-agent-content-workflow.svg` 返回 `SVG Scalable Vector Graphics image`。
+
 ## 2026-03-27
 
 ### Changed
