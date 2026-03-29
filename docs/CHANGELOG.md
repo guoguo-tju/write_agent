@@ -20,6 +20,8 @@
 - README（中英）补充 Linux.do 趋势能力说明，并新增页面截图展示，首页能力清单与实际功能保持一致。
 - GitHub 趋势页移除“批量加入 Top10 到素材库”按钮，减少误触入口并收敛到单条入素材/改写与“本周Top10去改写”主路径。
 - GitHub 趋势表格“项目”列加宽，并恢复超长仓库名自动换行，减少项目名被截断带来的阅读成本。
+- 端到端流程图热点入口语义更新：`XHS 热点` 替换为 `Linux.do 热点`，并同步更新 Mermaid 源文件与导出的 SVG 展示图。
+- 流程说明文档同步口径：`docs/workflow-overview.zh-CN.md` 中的“可选热点入口”由 `GitHub/XHS` 更新为 `GitHub/Linux.do`。
 
 ### Added
 - 新增 Linux.do 回归用例：覆盖冷却窗口拦截、RSS 429 读取 `Retry-After` 后重试、429 重试耗尽后的限流返回。
@@ -36,6 +38,10 @@
 - `test -f docs/screenshots/linuxdo-trends-page-v2.png` 通过。
 - `rg -n "Linux\\.do Trends|Linux\\.do 趋势页面|linuxdo-trends-page-v2\\.png" README.md docs/README.zh-CN.md` 通过。
 - `cd frontend && npm run build` 通过（GitHub 趋势页按钮与列宽调整后）。
+- `npx -y @mermaid-js/mermaid-cli -i docs/diagrams/write-agent-content-workflow.mmd -o docs/diagrams/write-agent-content-workflow.svg` 失败（退出码 1，触发兜底流程）。
+- `curl -fsSL -X POST https://kroki.io/mermaid/svg -H 'Content-Type: text/plain; charset=utf-8' --data-binary @docs/diagrams/write-agent-content-workflow.mmd -o docs/diagrams/write-agent-content-workflow.svg` 通过。
+- `file docs/diagrams/write-agent-content-workflow.svg` 返回 `SVG Scalable Vector Graphics image`。
+- `rg -n "Linux\\.do 热点|write-agent-content-workflow\\.svg" docs/diagrams/write-agent-content-workflow.mmd docs/workflow-overview.zh-CN.md README.md docs/README.zh-CN.md` 通过。
 - `PYTHONPATH=src uv run pytest -q tests/test_linuxdo_trends_service.py tests/test_linuxdo_trends_api.py` 通过（16 passed）。
 - `cd frontend && npm run build` 通过。
 - `POST /api/linuxdo-trends/materials/add-item` 本地验证返回 `200`（topic 403 场景下已降级）。
