@@ -61,6 +61,21 @@ class Settings(BaseSettings):
     github_trending_daily_hour: int = 9
     github_trending_daily_minute: int = 5
 
+    # Linux.do 趋势（Discourse JSON）
+    linuxdo_base_url: str = "https://linux.do"
+    linuxdo_trending_timeout_seconds: float = 20.0
+    linuxdo_trending_timezone: str = "Asia/Shanghai"
+    linuxdo_trending_default_limit: int = 20
+    linuxdo_trending_daily_hour: int = 9
+    linuxdo_trending_daily_minute: int = 10
+    linuxdo_refresh_cooldown_seconds: float = 90.0
+    linuxdo_rss_429_retries: int = 2
+    linuxdo_rss_429_default_retry_after_seconds: float = 6.0
+    linuxdo_rss_429_jitter_seconds: float = 0.5
+    linuxdo_summary_use_llm: bool = True
+    linuxdo_summary_llm_trigger_chars: int = 500
+    linuxdo_summary_llm_timeout_seconds: float = 8.0
+
     # 小红书热点（第三方已授权数据服务）
     xhs_trends_provider: str = "algovate_mcp"  # algovate_mcp|http_api
     xhs_trends_api_base_url: str = ""

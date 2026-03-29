@@ -11,6 +11,8 @@ from .cover_style import CoverStyle
 from .github_trending_snapshot import GitHubTrendingSnapshot
 from .github_trending_item import GitHubTrendingItem
 from .github_repo_enrichment_cache import GitHubRepoEnrichmentCache
+from .linuxdo_trending_snapshot import LinuxDoTrendingSnapshot
+from .linuxdo_trending_item import LinuxDoTrendingItem
 from .observability_event import ObservabilityEvent
 from .workflow_job import WorkflowJob
 from .workflow_job_event import WorkflowJobEvent
@@ -27,6 +29,8 @@ __all__ = [
     "GitHubTrendingSnapshot",
     "GitHubTrendingItem",
     "GitHubRepoEnrichmentCache",
+    "LinuxDoTrendingSnapshot",
+    "LinuxDoTrendingItem",
     "ObservabilityEvent",
     "WorkflowJob",
     "WorkflowJobEvent",

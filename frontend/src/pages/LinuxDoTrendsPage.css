@@ -1,0 +1,556 @@
+.linuxdo-trends-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 10% 10%, rgba(32, 90, 66, 0.18), transparent 30%),
+    radial-gradient(circle at 90% 0%, rgba(138, 192, 158, 0.14), transparent 36%),
+    #060f0c;
+  color: #d7e4db;
+}
+
+.linuxdo-trends-main {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+  display: grid;
+  gap: 14px;
+}
+
+.linuxdo-trends-header {
+  border: 1px solid #254437;
+  border-radius: 18px;
+  padding: 18px;
+  background: rgba(10, 20, 17, 0.78);
+  display: grid;
+  gap: 14px;
+}
+
+.linuxdo-trends-header h1 {
+  margin: 0;
+  font-family: "Noto Serif SC", serif;
+  font-size: clamp(32px, 4vw, 44px);
+  color: #f2f6f3;
+  letter-spacing: 0.02em;
+}
+
+.linuxdo-trends-header p {
+  margin: 8px 0 0;
+  color: #9cb4a8;
+  font-size: 14px;
+  line-height: 1.65;
+  max-width: 76ch;
+}
+
+.linuxdo-trends-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.linuxdo-trends-segment {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border: 1px solid #2a473a;
+  border-radius: 14px;
+  background: #11201a;
+}
+
+.linuxdo-trends-segment button {
+  border: 0;
+  background: transparent;
+  color: #9fb2a6;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease;
+}
+
+.linuxdo-trends-segment button.active {
+  color: #f3dda5;
+  background: #273022;
+}
+
+.linuxdo-trends-segment button:hover:not(.active) {
+  color: #dbe9df;
+}
+
+.linuxdo-trends-select {
+  display: grid;
+  gap: 6px;
+  color: #9fb2a6;
+  font-size: 13px;
+}
+
+.linuxdo-trends-select select {
+  min-width: 180px;
+  background: #0f1a16;
+  border: 1px solid #284539;
+  border-radius: 12px;
+  color: #e1eee4;
+  padding: 9px 12px;
+  outline: none;
+}
+
+.linuxdo-trends-select select:focus {
+  border-color: #7bc39d;
+  box-shadow: 0 0 0 3px rgba(123, 195, 157, 0.18);
+}
+
+.linuxdo-trends-secondary-btn,
+.linuxdo-trends-primary-btn {
+  border-radius: 12px;
+  border: 1px solid #355847;
+  background: #13211b;
+  color: #d7e4db;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.linuxdo-trends-secondary-btn:hover:not(:disabled),
+.linuxdo-trends-primary-btn:hover:not(:disabled) {
+  border-color: #7bc39d;
+  transform: translateY(-1px);
+}
+
+.linuxdo-trends-secondary-btn:disabled,
+.linuxdo-trends-primary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.linuxdo-trends-primary-btn {
+  border-color: #bfaa73;
+  background: #273022;
+  color: #f3dda5;
+}
+
+.linuxdo-trends-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #9ab2a7;
+  font-size: 13px;
+}
+
+.linuxdo-trends-meta .warn {
+  color: #e6c47f;
+}
+
+.linuxdo-trends-feedback {
+  border: 1px solid #2f4b3e;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.linuxdo-trends-feedback.info {
+  color: #bcd0c4;
+  background: rgba(31, 52, 43, 0.5);
+}
+
+.linuxdo-trends-feedback.success {
+  color: #b8e3c7;
+  background: rgba(21, 61, 45, 0.55);
+}
+
+.linuxdo-trends-feedback.error {
+  color: #f2b7b7;
+  background: rgba(77, 30, 30, 0.5);
+}
+
+.linuxdo-trends-feedback-link {
+  border: 1px solid #3a5f4c;
+  border-radius: 999px;
+  background: rgba(16, 30, 24, 0.82);
+  color: #b8e3c7;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.linuxdo-trends-feedback-link:hover {
+  border-color: #7bc39d;
+  color: #d7f2e3;
+}
+
+.linuxdo-trends-table-wrap {
+  border: 1px solid #254437;
+  border-radius: 18px;
+  overflow: auto;
+  background: rgba(9, 18, 15, 0.78);
+}
+
+.linuxdo-trends-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1120px;
+  table-layout: fixed;
+}
+
+.linuxdo-trends-table th,
+.linuxdo-trends-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #1f352b;
+  vertical-align: top;
+  text-align: left;
+  font-size: 13px;
+}
+
+.linuxdo-trends-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: #90a99d;
+  background: rgba(14, 24, 20, 0.9);
+  font-weight: 700;
+}
+
+.linuxdo-trends-table td {
+  color: #d5e2d9;
+}
+
+.linuxdo-trends-table th:nth-child(1),
+.linuxdo-trends-table td:nth-child(1) {
+  width: 20%;
+}
+
+.linuxdo-trends-table th:nth-child(2),
+.linuxdo-trends-table td:nth-child(2) {
+  width: 31%;
+}
+
+.linuxdo-trends-table th:nth-child(3),
+.linuxdo-trends-table td:nth-child(3) {
+  width: 7%;
+}
+
+.linuxdo-trends-table th:nth-child(4),
+.linuxdo-trends-table td:nth-child(4) {
+  width: 7%;
+}
+
+.linuxdo-trends-table th:nth-child(5),
+.linuxdo-trends-table td:nth-child(5) {
+  width: 7%;
+}
+
+.linuxdo-trends-table th:nth-child(6),
+.linuxdo-trends-table td:nth-child(6) {
+  width: 12%;
+}
+
+.linuxdo-trends-table th:nth-child(7),
+.linuxdo-trends-table td:nth-child(7) {
+  width: 6%;
+}
+
+.linuxdo-trends-table th:nth-child(8),
+.linuxdo-trends-table td:nth-child(8) {
+  width: 10%;
+}
+
+.linuxdo-trends-table .title-cell div {
+  font-weight: 700;
+  color: #f2f6f3;
+  word-break: break-word;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.linuxdo-summary-preview {
+  position: relative;
+  cursor: zoom-in;
+  padding-bottom: 2px;
+  margin-bottom: -2px;
+}
+
+.linuxdo-summary-preview > span {
+  color: #c3d4c8;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  transition: color 0.16s ease;
+}
+
+.linuxdo-summary-preview:hover > span,
+.linuxdo-summary-preview:focus-within > span {
+  color: #dcebe2;
+}
+
+.linuxdo-summary-popover {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 8;
+  width: min(600px, 78vw);
+  max-height: 300px;
+  overflow: auto;
+  padding: 14px 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(153, 204, 177, 0.52);
+  border-left: 3px solid rgba(243, 221, 165, 0.92);
+  background:
+    linear-gradient(180deg, rgba(25, 38, 31, 0.98), rgba(12, 21, 17, 0.98)),
+    rgba(11, 20, 16, 0.96);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(243, 221, 165, 0.15);
+  backdrop-filter: blur(4px);
+  color: #e6f0e9;
+  white-space: pre-wrap;
+  line-height: 1.62;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.linuxdo-summary-preview:hover .linuxdo-summary-popover,
+.linuxdo-summary-preview:focus-visible .linuxdo-summary-popover,
+.linuxdo-summary-preview:focus-within .linuxdo-summary-popover,
+.linuxdo-summary-preview.mobile-open .linuxdo-summary-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.linuxdo-summary-popover-text {
+  margin-bottom: 0;
+  font-size: 14px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.linuxdo-trends-table a {
+  color: #a6d2b8;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.linuxdo-trends-table a:hover {
+  color: #d7f2e3;
+}
+
+.linuxdo-trends-row-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.linuxdo-trends-row-actions .linuxdo-trends-secondary-btn,
+.linuxdo-trends-row-actions .linuxdo-trends-primary-btn {
+  padding: 7px 10px;
+  font-size: 12px;
+  border-radius: 10px;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.linuxdo-trends-loading,
+.linuxdo-trends-empty {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #94ada1;
+  padding: 18px;
+}
+
+.linuxdo-trends-empty {
+  color: #94ada1;
+}
+
+.linuxdo-trends-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(3, 8, 6, 0.72);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.linuxdo-trends-modal {
+  width: min(1080px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  border-radius: 18px;
+  border: 1px solid #2d4b3e;
+  background: linear-gradient(180deg, rgba(11, 19, 15, 0.98), rgba(7, 12, 10, 0.98));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+  padding: 18px;
+}
+
+.linuxdo-trends-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.linuxdo-trends-modal-head h3 {
+  margin: 0;
+  font-family: "Noto Serif SC", serif;
+  font-size: 24px;
+  color: #f2f6f3;
+}
+
+.linuxdo-trends-modal-head p {
+  margin: 8px 0 0;
+  color: #9cb4a8;
+}
+
+.linuxdo-trends-modal-close {
+  border: 1px solid #3a5f4c;
+  border-radius: 999px;
+  background: rgba(16, 30, 24, 0.96);
+  color: #d7e4db;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.linuxdo-trends-modal-loading,
+.linuxdo-trends-modal-error {
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #d7e4db;
+  padding: 18px;
+}
+
+.linuxdo-trends-modal-error {
+  color: #f2b7b7;
+}
+
+.linuxdo-trends-modal-body {
+  display: grid;
+  gap: 16px;
+}
+
+.linuxdo-trends-modal-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.linuxdo-trends-modal-meta div {
+  border: 1px solid #254437;
+  border-radius: 14px;
+  background: rgba(12, 24, 18, 0.88);
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.linuxdo-trends-modal-meta span {
+  color: #9fb2a6;
+  font-size: 12px;
+}
+
+.linuxdo-trends-modal-meta strong,
+.linuxdo-trends-modal-meta a {
+  color: #e1eee4;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.linuxdo-trends-modal-content {
+  border: 1px solid #2a473a;
+  border-radius: 16px;
+  background: rgba(12, 24, 18, 0.88);
+  padding: 14px;
+}
+
+.linuxdo-trends-modal-content h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: #c5d9cc;
+}
+
+.linuxdo-trends-modal-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.7;
+  color: #e6f0e9;
+  font-family: inherit;
+}
+
+@media (max-width: 960px) {
+  .linuxdo-trends-table {
+    min-width: 1160px;
+  }
+
+  .linuxdo-trends-modal-meta {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (hover: none) {
+  .linuxdo-summary-preview:hover .linuxdo-summary-popover {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(6px);
+  }
+
+  .linuxdo-summary-preview.mobile-open .linuxdo-summary-popover {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 720px) {
+  .linuxdo-trends-main {
+    padding: 20px 14px 36px;
+  }
+
+  .linuxdo-trends-header {
+    padding: 16px;
+  }
+
+  .linuxdo-trends-select select {
+    min-width: 150px;
+  }
+
+  .linuxdo-trends-modal-mask {
+    padding: 12px;
+  }
+
+  .linuxdo-trends-modal {
+    padding: 14px;
+  }
+
+  .linuxdo-trends-modal-head {
+    flex-direction: column;
+  }
+}

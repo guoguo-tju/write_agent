@@ -19,6 +19,13 @@ import type {
   GithubTrendWeekOption,
   GithubTrendAddMaterialResponse,
   GithubTrendRewriteBuildResponse,
+  LinuxDoTrendItem,
+  LinuxDoTrendSnapshot,
+  LinuxDoTrendPeriodOption,
+  LinuxDoTrendTopicDetail,
+  LinuxDoTrendRefreshResponse,
+  LinuxDoTrendAddMaterialResponse,
+  LinuxDoTrendRewriteBuildResponse,
   XhsTrendCategory,
   XhsTrendItem,
   XhsTrendListResponse,
@@ -56,6 +63,13 @@ export type {
   GithubTrendWeekOption,
   GithubTrendAddMaterialResponse,
   GithubTrendRewriteBuildResponse,
+  LinuxDoTrendItem,
+  LinuxDoTrendSnapshot,
+  LinuxDoTrendPeriodOption,
+  LinuxDoTrendTopicDetail,
+  LinuxDoTrendRefreshResponse,
+  LinuxDoTrendAddMaterialResponse,
+  LinuxDoTrendRewriteBuildResponse,
   XhsTrendCategory,
   XhsTrendItem,
   XhsTrendListResponse,
@@ -473,6 +487,166 @@ export const buildGithubTrendItemRewrite = async (
       week_key: weekKey,
       repo_full_name: repoFullName,
       enhance,
+    },
+  );
+  return response.data;
+};
+
+// ========== Linux.do 趋势 ==========
+
+export interface LinuxDoTrendsQuery {
+  periodType: "weekly" | "monthly";
+  periodKey?: string;
+  tag?: string;
+  limit?: number;
+}
+
+const normalizeLinuxDoTrendItem = (
+  item: Record<string, unknown>,
+): LinuxDoTrendItem => ({
+  topic_id: Number(item.topic_id || 0),
+  title: String(item.title || ""),
+  content: String(item.content || item.summary || item.content_excerpt || item.excerpt || ""),
+  summary: String(item.summary || item.content || item.content_excerpt || item.excerpt || ""),
+  content_excerpt: String(item.content_excerpt || item.content || item.summary || item.excerpt || ""),
+  excerpt: String(item.excerpt || item.content || item.summary || item.content_excerpt || ""),
+  author: String(item.author || ""),
+  tags: Array.isArray(item.tags)
+    ? (item.tags as unknown[]).map((value) => String(value || "").trim()).filter(Boolean)
+    : String(item.tags || "")
+        .split(/[,，\s]+/)
+        .map((value) => value.trim())
+        .filter(Boolean),
+  replies_count: Number(item.replies_count ?? item.reply_count ?? 0),
+  views_count: Number(item.views_count ?? item.view_count ?? 0),
+  likes_count: Number(item.likes_count ?? item.like_count ?? 0),
+  publish_time: String(item.publish_time || ""),
+  created_at: String(item.created_at || ""),
+  source_url: String(item.source_url || item.topic_url || ""),
+});
+
+const normalizeLinuxDoTrendSnapshot = (
+  data: Record<string, unknown>,
+): LinuxDoTrendSnapshot => ({
+  period_type: data.period_type === "monthly" ? "monthly" : "weekly",
+  period_key: String(data.period_key || ""),
+  period_label: String(data.requested_period_key || data.period_key || ""),
+  updated_at: String(data.updated_at || data.captured_at || data.snapshot_date || ""),
+  captured_at: String(data.captured_at || ""),
+  is_stale: Boolean(data.is_stale),
+  is_refreshing: Boolean(data.is_refreshing),
+  fetch_error: (data.fetch_error as string | null | undefined) ?? null,
+  available_tags: Array.isArray(data.available_tags)
+    ? (data.available_tags as unknown[]).map((value) => String(value || "").trim()).filter(Boolean)
+    : [],
+  items: Array.isArray(data.items)
+    ? (data.items as Record<string, unknown>[]).map(normalizeLinuxDoTrendItem)
+    : [],
+});
+
+export const getLinuxDoTrends = async (
+  query: LinuxDoTrendsQuery,
+): Promise<LinuxDoTrendSnapshot> => {
+  const params = new URLSearchParams({
+    period_type: query.periodType,
+    limit: String(query.limit ?? 20),
+  });
+  if (query.periodKey) {
+    params.set("period_key", query.periodKey);
+  }
+  if (query.tag) {
+    params.set("tag", query.tag);
+  }
+  const response = await api.get<LinuxDoTrendSnapshot>(
+    `/api/linuxdo-trends?${params.toString()}`,
+  );
+  return normalizeLinuxDoTrendSnapshot(response.data as unknown as Record<string, unknown>);
+};
+
+export const getLinuxDoTrendPeriods = async (
+  periodType: "weekly" | "monthly",
+): Promise<LinuxDoTrendPeriodOption[]> => {
+  const response = await api.get<LinuxDoTrendPeriodOption[]>(
+    `/api/linuxdo-trends/periods?${new URLSearchParams({
+      period_type: periodType,
+    }).toString()}`,
+  );
+  const rows = Array.isArray(response.data)
+    ? (response.data as unknown as Record<string, unknown>[])
+    : [];
+  return rows.map((row) => ({
+    period_type: periodType,
+    period_key: String(row.period_key || ""),
+    label: String(row.period_key || ""),
+    latest_snapshot_date: String(row.latest_snapshot_date || ""),
+    latest_captured_at: String(row.latest_captured_at || ""),
+    has_archive: true,
+  }));
+};
+
+export const refreshLinuxDoTrends = async (
+  periodType: "weekly" | "monthly",
+): Promise<LinuxDoTrendSnapshot> => {
+  const response = await api.post<LinuxDoTrendSnapshot>("/api/linuxdo-trends/refresh", {
+    period_type: periodType,
+  });
+  return normalizeLinuxDoTrendSnapshot(response.data as unknown as Record<string, unknown>);
+};
+
+export const getLinuxDoTrendTopicDetail = async (
+  topicId: number,
+): Promise<LinuxDoTrendTopicDetail> => {
+  const response = await api.get<LinuxDoTrendTopicDetail>(
+    `/api/linuxdo-trends/topics/${topicId}`,
+  );
+  const raw = response.data as unknown as Record<string, unknown>;
+  return {
+    topic_id: Number(raw.topic_id || topicId),
+    title: String(raw.title || ""),
+    content: String(raw.content || ""),
+    author: String(raw.author || ""),
+    tags: Array.isArray(raw.tags)
+      ? (raw.tags as unknown[]).map((value) => String(value || "").trim()).filter(Boolean)
+      : String(raw.tags || "")
+          .split(/[,，\s]+/)
+          .map((value) => value.trim())
+          .filter(Boolean),
+    source_url: String(raw.source_url || raw.topic_url || ""),
+    created_at: String(raw.created_at || raw.publish_time || ""),
+    updated_at: String(raw.updated_at || raw.publish_time || ""),
+    replies_count: Number(raw.replies_count ?? raw.reply_count ?? 0),
+    views_count: Number(raw.views_count ?? raw.view_count ?? 0),
+    likes_count: Number(raw.likes_count ?? raw.like_count ?? 0),
+  };
+};
+
+export const addLinuxDoTrendItemToMaterials = async (
+  periodType: "weekly" | "monthly",
+  periodKey: string,
+  topicId: number,
+): Promise<LinuxDoTrendAddMaterialResponse> => {
+  const response = await api.post<LinuxDoTrendAddMaterialResponse>(
+    "/api/linuxdo-trends/materials/add-item",
+    {
+      period_type: periodType,
+      period_key: periodKey,
+      topic_id: topicId,
+    },
+  );
+  return response.data;
+};
+
+export const buildLinuxDoTrendItemRewrite = async (
+  periodType: "weekly" | "monthly",
+  periodKey: string,
+  topicId: number,
+): Promise<LinuxDoTrendRewriteBuildResponse> => {
+  const response = await api.post<LinuxDoTrendRewriteBuildResponse>(
+    "/api/linuxdo-trends/rewrite/build-item",
+    {
+      period_type: periodType,
+      period_key: periodKey,
+      topic_id: topicId,
     },
   );
   return response.data;

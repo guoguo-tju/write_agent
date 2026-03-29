@@ -103,6 +103,80 @@ export interface GithubTrendRewriteBuildResponse {
   enrich?: GithubTrendEnrichMeta;
 }
 
+export interface LinuxDoTrendItem {
+  topic_id: number;
+  title: string;
+  content?: string;
+  summary?: string;
+  content_excerpt?: string;
+  excerpt?: string;
+  author?: string;
+  tags?: string[] | string;
+  replies_count?: number;
+  views_count?: number;
+  likes_count?: number;
+  publish_time?: string;
+  created_at?: string;
+  source_url?: string;
+}
+
+export interface LinuxDoTrendSnapshot {
+  period_type: "weekly" | "monthly";
+  period_key: string;
+  period_label?: string;
+  updated_at: string;
+  captured_at?: string;
+  is_stale?: boolean;
+  is_refreshing?: boolean;
+  fetch_error?: string | null;
+  available_tags?: string[];
+  items: LinuxDoTrendItem[];
+}
+
+export interface LinuxDoTrendPeriodOption {
+  period_type: "weekly" | "monthly";
+  period_key: string;
+  label: string;
+  latest_snapshot_date?: string;
+  latest_captured_at?: string;
+  has_archive?: boolean;
+}
+
+export interface LinuxDoTrendTopicDetail {
+  topic_id: number;
+  title: string;
+  content: string;
+  author?: string;
+  tags?: string[] | string;
+  source_url?: string;
+  created_at?: string;
+  updated_at?: string;
+  replies_count?: number;
+  views_count?: number;
+  likes_count?: number;
+}
+
+export interface LinuxDoTrendRefreshResponse {
+  status: string;
+  period_type: "weekly" | "monthly";
+  period_key?: string;
+  updated_at: string;
+  errors?: Record<string, string>;
+}
+
+export interface LinuxDoTrendAddMaterialResponse {
+  status: string;
+  material_id: number;
+  created: boolean;
+  updated?: boolean;
+}
+
+export interface LinuxDoTrendRewriteBuildResponse {
+  status: string;
+  title: string;
+  content: string;
+}
+
 export interface XhsTrendCategory {
   key: string;
   name: string;

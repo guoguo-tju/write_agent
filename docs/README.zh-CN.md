@@ -48,6 +48,10 @@
 
 ![GitHub 趋势页面](./screenshots/github-trends-page-v2.png)
 
+8. **Linux.do 趋势**：按 `7天 / 30天` 聚合 Linux.do 公开热帖，支持最近 12 期历史切换、单标签后端筛选，以及带冷却与限流退避的手动刷新。每条帖子可一键“入素材”或“去改写”。
+
+![Linux.do 趋势页面](./screenshots/linuxdo-trends-page-v2.png)
+
 ## 快速开始
 
 ### 1. 拉代码并安装依赖

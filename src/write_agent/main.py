@@ -26,6 +26,12 @@ from write_agent.services.github_trending_service import (
     RefreshInProgressError,
     get_github_trending_service,
 )
+from write_agent.services.linuxdo_trending_service import (
+    RefreshCoolingDownError as LinuxDoRefreshCoolingDownError,
+    RefreshInProgressError as LinuxDoRefreshInProgressError,
+    RefreshRateLimitedError as LinuxDoRefreshRateLimitedError,
+    get_linuxdo_trending_service,
+)
 from write_agent.services.workflow_job_service import get_workflow_job_service
 
 # 初始化日志
@@ -94,6 +100,64 @@ async def _github_trending_scheduler_loop():
             )
 
 
+async def _linuxdo_trending_scheduler_loop():
+    """每日定时抓取 Linux.do 趋势（weekly + monthly）。"""
+    tz = ZoneInfo(settings.linuxdo_trending_timezone)
+    service = get_linuxdo_trending_service()
+
+    while True:
+        now = datetime.now(tz)
+        next_run = now.replace(
+            hour=settings.linuxdo_trending_daily_hour,
+            minute=settings.linuxdo_trending_daily_minute,
+            second=0,
+            microsecond=0,
+        )
+        if next_run <= now:
+            next_run += timedelta(days=1)
+
+        wait_seconds = max((next_run - now).total_seconds(), 1.0)
+        logger.info(
+            "Linux.do 趋势调度已就绪，下一次执行时间：%s",
+            next_run.isoformat(),
+        )
+        await asyncio.sleep(wait_seconds)
+
+        try:
+            with obs_scope("JOB.LINUXDO_TRENDS.SCHEDULER", "SCHEDULER_JOB"):
+                emit_obs_event(
+                    level="INFO",
+                    message="linuxdo_trending.scheduler.tick",
+                    payload={"next_run": next_run.isoformat()},
+                )
+                await service.refresh_snapshot("weekly")
+                await service.refresh_snapshot("monthly")
+                logger.info("Linux.do 趋势定时抓取成功")
+                emit_obs_event(
+                    level="INFO",
+                    message="linuxdo_trending.scheduler.success",
+                )
+        except (
+            LinuxDoRefreshInProgressError,
+            LinuxDoRefreshCoolingDownError,
+            LinuxDoRefreshRateLimitedError,
+        ):
+            logger.info("Linux.do 趋势抓取已在执行中，跳过本轮定时任务")
+            emit_obs_event(
+                level="WARNING",
+                message="linuxdo_trending.scheduler.skipped",
+                error_code="E_LINUXDO_TREND_REFRESH_RUNNING",
+            )
+        except Exception as error:
+            logger.error("Linux.do 趋势定时抓取失败: %s", error, exc_info=True)
+            emit_obs_event(
+                level="ERROR",
+                message="linuxdo_trending.scheduler.failed",
+                error_code="E_LINUXDO_TREND_SCHEDULER_FAILED",
+                payload={"error": str(error)},
+            )
+
+
 async def _workflow_stale_recovery_loop():
     """运行期定时恢复长时间无心跳的 workflow job。"""
     workflow_job_service = get_workflow_job_service()
@@ -121,6 +185,9 @@ async def lifespan(app: FastAPI):
     scheduler_task: asyncio.Task | None = asyncio.create_task(
         _github_trending_scheduler_loop()
     )
+    linuxdo_scheduler_task: asyncio.Task | None = asyncio.create_task(
+        _linuxdo_trending_scheduler_loop()
+    )
     workflow_recovery_task: asyncio.Task | None = asyncio.create_task(
         _workflow_stale_recovery_loop()
     )
@@ -132,6 +199,10 @@ async def lifespan(app: FastAPI):
             scheduler_task.cancel()
             with suppress(asyncio.CancelledError):
                 await scheduler_task
+        if linuxdo_scheduler_task:
+            linuxdo_scheduler_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await linuxdo_scheduler_task
         if workflow_recovery_task:
             workflow_recovery_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -200,6 +271,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         payload={"detail": detail},
     )
     response = JSONResponse(status_code=status_code, content=payload)
+    if exc.headers:
+        for key, value in exc.headers.items():
+            response.headers[key] = value
     if ctx.trace_id:
         response.headers["X-Trace-Id"] = ctx.trace_id
     if ctx.request_id:

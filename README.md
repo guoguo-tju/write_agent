@@ -48,6 +48,10 @@ A full-stack AI writing agent for style extraction, rewriting, review, cover gen
 
 ![GitHub Trends Page](docs/screenshots/github-trends-page-v2.png)
 
+8. **Linux.do Trends**: aggregates public Linux.do hot topics by `7 days / 30 days`, supports period history switch (recent 12 periods), single-tag server-side filtering, and manual refresh with cooldown / rate-limit backoff protection. Each item can be sent to Materials or Rewrite in one click.
+
+![Linux.do Trends Page](docs/screenshots/linuxdo-trends-page-v2.png)
+
 ## Quick Start
 
 ### 1. Clone and install

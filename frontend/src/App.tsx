@@ -7,6 +7,7 @@ import {
   ReviewsPage,
   CoversPage,
   GithubTrendsPage,
+  LinuxDoTrendsPage,
   HotTopicsPage,
 } from './pages';
 
@@ -24,6 +25,7 @@ function App() {
         <Route path="/reviews" element={<ReviewsPage />} />
         <Route path="/covers" element={<CoversPage />} />
         <Route path="/github-trends" element={<GithubTrendsPage />} />
+        <Route path="/linuxdo-trends" element={<LinuxDoTrendsPage />} />
         <Route path="/hot-topics" element={<HotTopicsPage />} />
         <Route path="/xhs-trends" element={<HotTopicsPage />} />
         <Route

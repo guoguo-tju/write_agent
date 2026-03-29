@@ -1,8 +1,57 @@
 # Changelog
 
+## 2026-03-29
+
+### Changed
+- Linux.do 刷新链路新增服务端冷却窗控制：同周期刷新成功后进入可配置冷却时间，冷却命中时直接返回 429，避免短时间重复打上游。
+- Linux.do RSS 抓取新增 429 自动退避重试：读取 `Retry-After`（秒值或 HTTP-date）作为退避基准，重试耗尽后按重试窗口写入冷却并返回明确限流语义。
+- Linux.do 刷新 API 细化 429 语义：区分“冷却中”与“上游限流”两类场景，前端可按提示时间重试。
+- 全局 HTTP 异常处理器保留业务自定义响应头（如 `Retry-After`），避免可观测包装后丢失限流重试信号。
+- Linux.do 趋势摘要升级为“规则 + LLM 智能总结”双轨：当正文长度超过阈值时优先用大模型输出“短文 + 要点”摘要，失败自动回退规则截断，刷新链路仍保持可用。
+- Linux.do 刷新链路新增超时治理：刷新阶段仅处理默认 `limit` 条目；topic 明细 403 回退路径不再触发 LLM，总体刷新耗时显著收敛，避免前端 60s 请求超时。
+- Linux.do 智能摘要改为独立短超时调用（不复用全局 60s 超时），防止单条摘要调用拖慢整批刷新。
+- Linux.do 趋势页移除“浏览/点赞”两列与其表格映射，减少无效 0 值干扰，并为核心字段释放横向空间。
+- Linux.do 趋势页进一步收敛列宽：内容摘要列加宽，作者/标签列缩窄，提升 1366+ 宽度下的一屏可读性。
+- Linux.do 趋势页移除“查看详情”入口与详情弹窗能力，内容摘要仅保留“预览 + 悬浮全文”交互。
+- Linux.do `入素材` / `去改写` 链路新增详情降级策略：当 `topic/{id}.json` 被 403 拦截时，自动回退到榜单摘要，不再返回 500。
+- Linux.do `入素材` / `去改写` 预填内容移除 `## 观察点（可补充）` 与 `## 改写提示（可补充）` 两段，避免把模板提示混入正文素材。
+- Linux.do 趋势页摘要悬浮层改为无缝悬停（去除 hover 间隙），支持鼠标直接移入后滚动浏览全文，无需先点击“固定”。
+- Linux.do 趋势页摘要悬浮层视觉强化：提升边框对比、增加左侧强调色与阴影层次，降低与底层正文混淆。
+- README（中英）补充 Linux.do 趋势能力说明，并新增页面截图展示，首页能力清单与实际功能保持一致。
+
+### Added
+- 新增 Linux.do 回归用例：覆盖冷却窗口拦截、RSS 429 读取 `Retry-After` 后重试、429 重试耗尽后的限流返回。
+- 新增 Linux.do API 回归：`/api/linuxdo-trends/refresh` 在“冷却命中/上游限流”场景统一返回 429，并携带可读重试提示。
+- 新增 Linux.do 服务回归用例：`topic 详情 403` 时，`add_item_to_materials/build_item_rewrite_markdown` 仍可成功返回。
+- 新增 Linux.do 配置项：`LINUXDO_SUMMARY_USE_LLM`、`LINUXDO_SUMMARY_LLM_TRIGGER_CHARS`，用于控制长摘要智能总结开关与触发阈值。
+- 新增 Linux.do 配置项：`LINUXDO_SUMMARY_LLM_TIMEOUT_SECONDS`，用于限制单次智能摘要调用耗时。
+- 新增 Linux.do 智能总结观测事件：`summary.llm.start/done/fallback`，可追踪触发、成功与回退原因。
+
+### Verification
+- `PYTHONPATH=src uv run pytest -q tests/test_linuxdo_trends_service.py tests/test_linuxdo_trends_api.py` 通过（21 passed）。
+- `PYTHONPATH=src uv run pytest -q` 通过（142 passed）。
+- `curl --noproxy '*' -i -sS -X POST http://127.0.0.1:8000/api/linuxdo-trends/refresh ...` 连续触发验证：首次 `200`，冷却命中返回 `429` 且含 `retry-after` 头。
+- `test -f docs/screenshots/linuxdo-trends-page-v2.png` 通过。
+- `rg -n "Linux\\.do Trends|Linux\\.do 趋势页面|linuxdo-trends-page-v2\\.png" README.md docs/README.zh-CN.md` 通过。
+- `PYTHONPATH=src uv run pytest -q tests/test_linuxdo_trends_service.py tests/test_linuxdo_trends_api.py` 通过（16 passed）。
+- `cd frontend && npm run build` 通过。
+- `POST /api/linuxdo-trends/materials/add-item` 本地验证返回 `200`（topic 403 场景下已降级）。
+- `POST /api/linuxdo-trends/rewrite/build-item` 本地验证返回 `200`（topic 403 场景下已降级）。
+- `POST /api/linuxdo-trends/rewrite/build-item` 返回内容已确认不再包含 `## 观察点（可补充）` 与 `## 改写提示（可补充）`。
+- `POST /api/linuxdo-trends/refresh` 本地压测：返回 `200`，耗时约 `23.92s`（低于前端 60s 超时阈值）。
+
 ## 2026-03-28
 
 ### Changed
+- Linux.do 趋势抓取主入口由 `top.json` 切换为 `top.rss`（`weekly/monthly`），规避 Cloudflare challenge 403 导致的刷新失败。
+- Linux.do 趋势新增“RSS 主榜单 + `/t/{id}.json` 明细补全”两阶段链路：榜单字段先落库，明细补作者/标签/浏览/点赞/正文摘要。
+- Linux.do 刷新失败语义细化为“部分成功可用”：RSS 成功但个别 topic 明细失败时不阻断整批快照，失败条目回退 RSS 基础字段与默认统计值。
+- 新增 Linux.do 趋势主链能力（Discourse JSON 公共接口）：支持 `weekly/monthly` 两种周期口径、默认 20 条返回、单标签后端过滤、最近 12 期历史回看。
+- 新增 Linux.do 每日定时任务（默认 `09:10`，`Asia/Shanghai`）：每日刷新 weekly + monthly 两套快照，并沿用统一可观测事件模型。
+- 热点导航重构为“热点集市”下拉：桌面支持 hover 展开，移动端支持点击展开，默认主入口落在 GitHub 趋势并新增 Linux.do 趋势入口。
+- 新增 Linux.do 趋势页：7天/30天切换、历史周期选择、标签筛选、手动刷新、详情弹窗、单条入素材/去改写动作。
+- Linux.do 前端 API 层补齐字段归一化映射：兼容后端返回 `topic_url/view_count/like_count/reply_count` 到页面消费字段，避免空列与详情缺失。
+- 修复调度异常类型映射错误：GitHub 与 Linux.do 调度循环分别捕获各自的“刷新进行中”异常，避免日志语义与跳过策略错位。
 - 文档收敛：移除 `docs/diagrams/write-agent-content-workflow.drawio`，主流程图交付统一为 `mmd + svg`，避免双轨维护带来的同步成本。
 - 中文首页补齐流程图展示：`docs/README.zh-CN.md` 新增 `./diagrams/write-agent-content-workflow.svg` 嵌入，与英文 `README.md` 保持一致。
 - 规范治理升级：`docs/specs/development-spec-v1.md` 升级为 `v1.1`，新增“主链路语义变化必须同步更新 Mermaid/SVG 流程图”的 MUST 规则，并将流程图同步纳入 DoD（未同步视为未完成）。
@@ -12,12 +61,23 @@
 - 将流程图进一步升级为「科技发布会风」演示版：强化舞台感标题、霓虹高对比色与主分支粗线连结，提升投屏场景下的视觉冲击与远距可读性。
 
 ### Added
+- 新增后端 Linux.do 模块：
+  - 路由：`/api/linuxdo-trends`、`/api/linuxdo-trends/periods`、`/api/linuxdo-trends/refresh`、`/api/linuxdo-trends/topics/{topic_id}`、`/api/linuxdo-trends/materials/add-item`、`/api/linuxdo-trends/rewrite/build-item`
+  - 服务：`src/write_agent/services/linuxdo_trending_service.py`
+  - 模型：`linuxdo_trending_snapshots`、`linuxdo_trending_items`
+- 新增 Linux.do 可观测注册节点（API / Service / Scheduler 全链路），并保持错误响应 `trace_id` 契约。
+- 新增 Linux.do 前端页面与样式：`frontend/src/pages/LinuxDoTrendsPage.tsx`、`frontend/src/pages/LinuxDoTrendsPage.css`。
+- 新增 Linux.do 前端 API/类型/i18n 接线与导航入口，形成 GitHub + Linux.do 双趋势入口。
+- 新增 Linux.do 回归测试：`tests/test_linuxdo_trends_service.py`、`tests/test_linuxdo_trends_api.py`。
 - 新增独立流程图文档 `docs/workflow-overview.zh-CN.md`，沉淀「内容生产主链」单总图讲解版本（中文业务词命名，适配面试讲解与团队沟通）。
 - 新增 Mermaid 总流程图：覆盖可选热点入口（GitHub/XHS）、改写与主编审核闭环、封面来源双分支（目标文章/手动标题正文）与排版输出链路。
 - 新增 draw.io 展示版文件 `docs/diagrams/write-agent-content-workflow.drawio`，采用深色科技风并与 Mermaid 语义对齐。
 - 新增 Mermaid 源文件 `docs/diagrams/write-agent-content-workflow.mmd` 与导出图 `docs/diagrams/write-agent-content-workflow.svg`，用于投屏与外部分享。
 
 ### Verification
+- `PYTHONPATH=src uv run pytest -q tests/test_linuxdo_trends_service.py tests/test_linuxdo_trends_api.py` 通过（12 passed）。
+- `PYTHONPATH=src uv run pytest -q` 通过（133 passed）。
+- `cd frontend && npm run build` 通过。
 - `rg -n "write-agent-content-workflow\\.svg" README.md docs/README.zh-CN.md` 通过。
 - `test ! -f docs/diagrams/write-agent-content-workflow.drawio` 通过。
 - `rg -n "Workflow Diagram Sync Rule|主链路变更附加验收|write-agent-content-workflow\\.mmd|v1\\.1" docs/specs/development-spec-v1.md docs/specs/verification-checklist.md` 通过。
