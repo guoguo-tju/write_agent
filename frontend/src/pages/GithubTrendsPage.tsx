@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ExternalLink, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { AppTopNav } from "../components";
 import { formatMessage, useLanguage } from "../i18n";
 import {
   addGithubTrendItemToMaterials,
-  addGithubTrendWeekDigestToMaterials,
   buildGithubTrendItemRewrite,
   getGithubTrendWeeks,
   getGithubTrends,
@@ -97,7 +96,6 @@ export const GithubTrendsPage: React.FC = () => {
   const [snapshot, setSnapshot] = useState<GithubTrendSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isBulkAdding, setIsBulkAdding] = useState(false);
   const [rowActionKey, setRowActionKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [enhanceEnabled, setEnhanceEnabled] = useState(true);
@@ -250,24 +248,6 @@ export const GithubTrendsPage: React.FC = () => {
     }
   };
 
-  const handleBulkAdd = async () => {
-    setIsBulkAdding(true);
-    try {
-      const result = await addGithubTrendWeekDigestToMaterials(effectiveWeekKey);
-      setFeedback({
-        kind: "success",
-        message: result.created
-          ? trendsText.addSuccessCreated
-          : trendsText.addSuccessExisting,
-      });
-    } catch (error) {
-      console.error("周报入素材失败:", error);
-      setFeedback({ kind: "error", message: trendsText.addFailed });
-    } finally {
-      setIsBulkAdding(false);
-    }
-  };
-
   const handleRewriteItem = async (item: GithubTrendItem) => {
     setRowActionKey(`rewrite-${item.repo_full_name}`);
     try {
@@ -361,18 +341,6 @@ export const GithubTrendsPage: React.FC = () => {
 
             <button
               type="button"
-              className="github-trends-secondary-btn"
-              onClick={() => {
-                void handleBulkAdd();
-              }}
-              disabled={isBulkAdding || !snapshot?.items?.length}
-            >
-              {isBulkAdding ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
-              {trendsText.bulkAdd}
-            </button>
-
-            <button
-              type="button"
               className="github-trends-primary-btn"
               onClick={handleRewriteTop10}
               disabled={!snapshot?.items?.length}
@@ -448,7 +416,9 @@ export const GithubTrendsPage: React.FC = () => {
                   return (
                     <tr key={`${item.rank}-${item.repo_full_name}`}>
                       <td>{index + 1}</td>
-                      <td className="repo-cell">{item.repo_full_name}</td>
+                      <td className="repo-cell" title={item.repo_full_name}>
+                        {item.repo_full_name}
+                      </td>
                       <td>{item.owner}</td>
                       <td className="description-cell">
                         <div className="description-text" title={descriptionText}>

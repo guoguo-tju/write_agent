@@ -18,6 +18,8 @@
 - Linux.do 趋势页摘要悬浮层改为无缝悬停（去除 hover 间隙），支持鼠标直接移入后滚动浏览全文，无需先点击“固定”。
 - Linux.do 趋势页摘要悬浮层视觉强化：提升边框对比、增加左侧强调色与阴影层次，降低与底层正文混淆。
 - README（中英）补充 Linux.do 趋势能力说明，并新增页面截图展示，首页能力清单与实际功能保持一致。
+- GitHub 趋势页移除“批量加入 Top10 到素材库”按钮，减少误触入口并收敛到单条入素材/改写与“本周Top10去改写”主路径。
+- GitHub 趋势表格“项目”列加宽，并恢复超长仓库名自动换行，减少项目名被截断带来的阅读成本。
 
 ### Added
 - 新增 Linux.do 回归用例：覆盖冷却窗口拦截、RSS 429 读取 `Retry-After` 后重试、429 重试耗尽后的限流返回。
@@ -33,6 +35,7 @@
 - `curl --noproxy '*' -i -sS -X POST http://127.0.0.1:8000/api/linuxdo-trends/refresh ...` 连续触发验证：首次 `200`，冷却命中返回 `429` 且含 `retry-after` 头。
 - `test -f docs/screenshots/linuxdo-trends-page-v2.png` 通过。
 - `rg -n "Linux\\.do Trends|Linux\\.do 趋势页面|linuxdo-trends-page-v2\\.png" README.md docs/README.zh-CN.md` 通过。
+- `cd frontend && npm run build` 通过（GitHub 趋势页按钮与列宽调整后）。
 - `PYTHONPATH=src uv run pytest -q tests/test_linuxdo_trends_service.py tests/test_linuxdo_trends_api.py` 通过（16 passed）。
 - `cd frontend && npm run build` 通过。
 - `POST /api/linuxdo-trends/materials/add-item` 本地验证返回 `200`（topic 403 场景下已降级）。
