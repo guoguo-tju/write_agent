@@ -22,6 +22,7 @@
 - GitHub 趋势表格“项目”列加宽，并恢复超长仓库名自动换行，减少项目名被截断带来的阅读成本。
 - 端到端流程图热点入口语义更新：`XHS 热点` 替换为 `Linux.do 热点`，并同步更新 Mermaid 源文件与导出的 SVG 展示图。
 - 流程说明文档同步口径：`docs/workflow-overview.zh-CN.md` 中的“可选热点入口”由 `GitHub/XHS` 更新为 `GitHub/Linux.do`。
+- GitHub 趋势中文页简介展示补齐回退：当 `description_zh` 缺失时，优先展示原始 `description`（英文），不再直接显示“暂无简介”。
 
 ### Added
 - 新增 Linux.do 回归用例：覆盖冷却窗口拦截、RSS 429 读取 `Retry-After` 后重试、429 重试耗尽后的限流返回。
@@ -44,6 +45,7 @@
 - `rg -n "Linux\\.do 热点|write-agent-content-workflow\\.svg" docs/diagrams/write-agent-content-workflow.mmd docs/workflow-overview.zh-CN.md README.md docs/README.zh-CN.md` 通过。
 - `PYTHONPATH=src uv run pytest -q tests/test_linuxdo_trends_service.py tests/test_linuxdo_trends_api.py` 通过（16 passed）。
 - `cd frontend && npm run build` 通过。
+- `cd frontend && npm run build` 通过（GitHub 趋势简介回退逻辑修复后）。
 - `POST /api/linuxdo-trends/materials/add-item` 本地验证返回 `200`（topic 403 场景下已降级）。
 - `POST /api/linuxdo-trends/rewrite/build-item` 本地验证返回 `200`（topic 403 场景下已降级）。
 - `POST /api/linuxdo-trends/rewrite/build-item` 返回内容已确认不再包含 `## 观察点（可补充）` 与 `## 改写提示（可补充）`。

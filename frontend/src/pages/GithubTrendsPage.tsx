@@ -45,10 +45,9 @@ const formatDateTime = (value: string, locale: string) => {
 const pickDescription = (item: GithubTrendItem, lang: "zh" | "en"): string => {
   const original = item.description?.trim() || "";
   const translated = item.description_zh?.trim() || "";
-  const hasChineseInOriginal = /[\u4e00-\u9fff]/.test(original);
 
   if (lang === "zh") {
-    return translated || (hasChineseInOriginal ? original : "暂无简介");
+    return translated || original || "暂无简介";
   }
   return original || translated || "No description";
 };
