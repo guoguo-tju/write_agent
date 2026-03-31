@@ -60,8 +60,12 @@ export interface GithubTrendItem {
 }
 
 export interface GithubTrendSnapshot {
+  period_type?: "daily" | "weekly";
+  period_key?: string;
   week_key: string;
-  requested_week_key: string;
+  requested_week_key?: string;
+  requested_period_type?: "daily" | "weekly";
+  requested_period_key?: string;
   snapshot_date: string;
   captured_at: string;
   is_weekly_archive: boolean;
@@ -73,6 +77,14 @@ export interface GithubTrendSnapshot {
 
 export interface GithubTrendWeekOption {
   week_key: string;
+  latest_snapshot_date: string;
+  latest_captured_at: string;
+  has_archive: boolean;
+}
+
+export interface GithubTrendPeriodOption {
+  period_type: "daily" | "weekly";
+  period_key: string;
   latest_snapshot_date: string;
   latest_captured_at: string;
   has_archive: boolean;

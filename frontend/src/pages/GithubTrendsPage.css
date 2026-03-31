@@ -44,6 +44,41 @@
   align-items: flex-end;
 }
 
+.github-trends-scope-toggle {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 3px;
+  border: 1px solid #284539;
+  border-radius: 14px;
+  background: rgba(15, 26, 22, 0.9);
+}
+
+.github-trends-scope-toggle button {
+  border: 0;
+  background: transparent;
+  color: #a8bdb0;
+  padding: 10px 18px;
+  border-radius: 11px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.github-trends-scope-toggle button:hover {
+  color: #dce8df;
+}
+
+.github-trends-scope-toggle button.is-active {
+  background: linear-gradient(180deg, rgba(41, 67, 55, 0.95), rgba(24, 41, 34, 0.95));
+  color: #f4f0cf;
+  box-shadow: inset 0 0 0 1px rgba(191, 170, 115, 0.26);
+}
+
 .github-trends-enhance-toggle {
   display: inline-flex;
   align-items: center;
@@ -69,6 +104,22 @@
 
 .github-trends-week-select select {
   min-width: 160px;
+  background: #0f1a16;
+  border: 1px solid #284539;
+  border-radius: 10px;
+  color: #e1eee4;
+  padding: 8px 10px;
+}
+
+.github-trends-period-select {
+  display: grid;
+  gap: 6px;
+  color: #9fb2a6;
+  font-size: 13px;
+}
+
+.github-trends-period-select select {
+  min-width: 188px;
   background: #0f1a16;
   border: 1px solid #284539;
   border-radius: 10px;
@@ -168,7 +219,7 @@
 .github-trends-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 1200px;
+  min-width: 1180px;
   table-layout: fixed;
 }
 

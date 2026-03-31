@@ -17,6 +17,7 @@ import type {
   GithubTrendEnrichMeta,
   GithubTrendSnapshot,
   GithubTrendWeekOption,
+  GithubTrendPeriodOption,
   GithubTrendAddMaterialResponse,
   GithubTrendRewriteBuildResponse,
   LinuxDoTrendItem,
@@ -61,6 +62,7 @@ export type {
   GithubTrendEnrichMeta,
   GithubTrendSnapshot,
   GithubTrendWeekOption,
+  GithubTrendPeriodOption,
   GithubTrendAddMaterialResponse,
   GithubTrendRewriteBuildResponse,
   LinuxDoTrendItem,
@@ -425,11 +427,27 @@ export const retrieveMaterials = async (
 // ========== GitHub 趋势 ==========
 
 export const getGithubTrends = async (
-  weekKey?: string,
+  query?: {
+    weekKey?: string;
+    periodType?: "daily" | "weekly";
+    periodKey?: string;
+  } | string,
 ): Promise<GithubTrendSnapshot> => {
   const params = new URLSearchParams();
-  if (weekKey) {
-    params.set("week_key", weekKey);
+  if (typeof query === "string") {
+    if (query) {
+      params.set("week_key", query);
+    }
+  } else if (query) {
+    if (query.weekKey) {
+      params.set("week_key", query.weekKey);
+    }
+    if (query.periodType) {
+      params.set("period_type", query.periodType);
+    }
+    if (query.periodKey) {
+      params.set("period_key", query.periodKey);
+    }
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
   const response = await api.get<GithubTrendSnapshot>(
@@ -443,23 +461,52 @@ export const getGithubTrendWeeks = async (): Promise<GithubTrendWeekOption[]> =>
   return response.data;
 };
 
-export const refreshGithubTrends = async (): Promise<GithubTrendSnapshot> => {
-  const response = await api.post<GithubTrendSnapshot>("/api/github-trends/refresh");
+export const getGithubTrendPeriods = async (
+  periodType: "daily" | "weekly",
+): Promise<GithubTrendPeriodOption[]> => {
+  const response = await api.get<GithubTrendPeriodOption[]>(
+    `/api/github-trends/periods?${new URLSearchParams({ period_type: periodType }).toString()}`,
+  );
+  return response.data;
+};
+
+export const refreshGithubTrends = async (query?: {
+  periodType?: "daily" | "weekly";
+}): Promise<GithubTrendSnapshot> => {
+  const response = await api.post<GithubTrendSnapshot>("/api/github-trends/refresh", {
+    period_type: query?.periodType || "weekly",
+  });
   return response.data;
 };
 
 export const addGithubTrendItemToMaterials = async (
-  weekKey: string,
+  query:
+    | string
+    | {
+        weekKey?: string;
+        periodType?: "daily" | "weekly";
+        periodKey?: string;
+      },
   repoFullName: string,
   enhance = true,
 ): Promise<GithubTrendAddMaterialResponse> => {
+  const payload: Record<string, string | boolean> = { repo_full_name: repoFullName, enhance };
+  if (typeof query === "string") {
+    payload.week_key = query;
+  } else {
+    if (query.weekKey) {
+      payload.week_key = query.weekKey;
+    }
+    if (query.periodType) {
+      payload.period_type = query.periodType;
+    }
+    if (query.periodKey) {
+      payload.period_key = query.periodKey;
+    }
+  }
   const response = await api.post<GithubTrendAddMaterialResponse>(
     "/api/github-trends/materials/add-item",
-    {
-      week_key: weekKey,
-      repo_full_name: repoFullName,
-      enhance,
-    },
+    payload,
   );
   return response.data;
 };
@@ -477,17 +524,33 @@ export const addGithubTrendWeekDigestToMaterials = async (
 };
 
 export const buildGithubTrendItemRewrite = async (
-  weekKey: string,
+  query:
+    | string
+    | {
+        weekKey?: string;
+        periodType?: "daily" | "weekly";
+        periodKey?: string;
+      },
   repoFullName: string,
   enhance = true,
 ): Promise<GithubTrendRewriteBuildResponse> => {
+  const payload: Record<string, string | boolean> = { repo_full_name: repoFullName, enhance };
+  if (typeof query === "string") {
+    payload.week_key = query;
+  } else {
+    if (query.weekKey) {
+      payload.week_key = query.weekKey;
+    }
+    if (query.periodType) {
+      payload.period_type = query.periodType;
+    }
+    if (query.periodKey) {
+      payload.period_key = query.periodKey;
+    }
+  }
   const response = await api.post<GithubTrendRewriteBuildResponse>(
     "/api/github-trends/rewrite/build-item",
-    {
-      week_key: weekKey,
-      repo_full_name: repoFullName,
-      enhance,
-    },
+    payload,
   );
   return response.data;
 };

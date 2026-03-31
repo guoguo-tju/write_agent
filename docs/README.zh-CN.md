@@ -95,6 +95,16 @@ npm run dev
 
 建议首次体验路径：`改写 -> 审核 -> 封面 -> 排版(/layout)`，完整走一遍最能感受流程闭环。
 
+### 可选：一键启动/停止/重启
+
+```bash
+bash scripts/dev_ctl.sh start
+bash scripts/dev_ctl.sh status
+bash scripts/dev_ctl.sh logs backend
+bash scripts/dev_ctl.sh restart
+bash scripts/dev_ctl.sh stop
+```
+
 说明：若未配置 `SILICONFLOW_API_KEY`，主流程可正常体验，但写作阶段的 RAG 检索与引用展示会受限。
 
 ## 项目结构

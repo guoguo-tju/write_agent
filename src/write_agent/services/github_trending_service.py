@@ -36,14 +36,21 @@ engine = create_engine(settings.database_url, echo=False)
 
 
 TRENDING_WEEKLY_URL = "https://github.com/trending?since=weekly"
-TRENDING_SOURCE_URL = "https://github.com/trending?since=weekly"
-STAR_WEEK_PATTERN = re.compile(r"([\d,]+)\s*stars?\s*this\s*week", re.IGNORECASE)
+TRENDING_DAILY_URL = "https://github.com/trending?since=daily"
+TRENDING_SOURCE_URL = TRENDING_WEEKLY_URL
+STAR_PERIOD_PATTERN = re.compile(
+    r"([\d,]+)\s*stars?\s*(?:this\s*week|today)",
+    re.IGNORECASE,
+)
 WEEK_KEY_PATTERN = re.compile(r"^\d{4}-W\d{2}$")
+DAILY_KEY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ENRICHMENT_CACHE_TTL = timedelta(days=7)
 ENRICHMENT_TIMEOUT_SECONDS = 8.0
 ENRICHMENT_EXTERNAL_LINK_MAX = 3
 DOC_LINK_KEYWORDS = ("doc", "docs", "guide", "manual", "wiki")
 ENRICHMENT_SECTION_HEADER = "## 仓库增强信息（自动抓取）"
+TRANSLATION_SINGLE_RETRY_MAX = 3
+TRANSLATION_SINGLE_TIMEOUT_SECONDS = 4.0
 
 
 class RefreshInProgressError(RuntimeError):
@@ -106,6 +113,9 @@ class GitHubTrendingService:
     def current_week_key(self) -> str:
         return self.week_key_for_date(datetime.now(self.timezone).date())
 
+    def current_daily_key(self) -> str:
+        return datetime.now(self.timezone).date().isoformat()
+
     @staticmethod
     def week_key_for_date(value: date) -> str:
         year, week, _ = value.isocalendar()
@@ -117,6 +127,31 @@ class GitHubTrendingService:
         if not WEEK_KEY_PATTERN.match(normalized):
             raise ValueError("week_key 格式无效，应为 YYYY-Www")
         return normalized
+
+    @staticmethod
+    def _normalize_period_type(period_type: Optional[str]) -> str:
+        normalized = (period_type or "weekly").strip().lower()
+        if normalized not in {"weekly", "daily"}:
+            raise ValueError("period_type 仅支持 daily 或 weekly")
+        return normalized
+
+    @staticmethod
+    def _normalize_daily_key(period_key: str) -> str:
+        normalized = (period_key or "").strip()
+        if not DAILY_KEY_PATTERN.match(normalized):
+            raise ValueError("period_key 格式无效，应为 YYYY-MM-DD")
+        return normalized
+
+    def _normalize_period_key(self, period_type: str, period_key: Optional[str]) -> str:
+        mode = self._normalize_period_type(period_type)
+        normalized = (period_key or "").strip()
+        if mode == "weekly":
+            if not normalized:
+                normalized = self.current_week_key()
+            return self._normalize_week_key(normalized)
+        if not normalized:
+            normalized = self.current_daily_key()
+        return self._normalize_daily_key(normalized)
 
     @staticmethod
     def _parse_int(value: str) -> Optional[int]:
@@ -148,6 +183,10 @@ class GitHubTrendingService:
         latin_count = len(re.findall(r"[A-Za-z]", text_value))
         return latin_count <= max(12, zh_count * 2)
 
+    @staticmethod
+    def _zh_translation_fallback() -> str:
+        return "该项目英文简介暂未完成中文翻译，请稍后重试。"
+
     def _ensure_schema_compat(self) -> None:
         """兼容历史库：description_zh 列可能不存在。"""
         with engine.begin() as conn:
@@ -161,8 +200,41 @@ class GitHubTrendingService:
                 )
                 logger.info("github_trending_items 已补齐 description_zh 列")
 
-    def _load_week_translation_cache(self, week_key: str) -> dict[str, str]:
-        """加载同周已翻译简介，避免重复调用模型。"""
+            snapshot_columns = {
+                col["name"] for col in db_inspector.get_columns("github_trending_snapshots")
+            }
+            if "period_type" not in snapshot_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE github_trending_snapshots ADD COLUMN period_type TEXT DEFAULT 'weekly'"
+                    )
+                )
+                logger.info("github_trending_snapshots 已补齐 period_type 列")
+            if "period_key" not in snapshot_columns:
+                conn.execute(
+                    text("ALTER TABLE github_trending_snapshots ADD COLUMN period_key TEXT")
+                )
+                logger.info("github_trending_snapshots 已补齐 period_key 列")
+            conn.execute(
+                text(
+                    "UPDATE github_trending_snapshots "
+                    "SET period_type='weekly' "
+                    "WHERE period_type IS NULL OR period_type=''"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE github_trending_snapshots "
+                    "SET period_key=week_key "
+                    "WHERE period_key IS NULL OR period_key=''"
+                )
+            )
+
+    def _load_period_translation_cache(self, period_type: str, period_key: str) -> dict[str, str]:
+        """加载同周期已翻译简介，避免重复调用模型。"""
+        mode = self._normalize_period_type(period_type)
+        normalized_key = self._normalize_period_key(mode, period_key)
+        fallback_value = self._zh_translation_fallback()
         with Session(engine) as session:
             rows = session.exec(
                 select(
@@ -175,7 +247,8 @@ class GitHubTrendingService:
                     GitHubTrendingSnapshot.id == GitHubTrendingItem.snapshot_id,
                 )
                 .where(
-                    GitHubTrendingSnapshot.week_key == week_key,
+                    GitHubTrendingSnapshot.period_type == mode,
+                    GitHubTrendingSnapshot.period_key == normalized_key,
                     GitHubTrendingSnapshot.fetch_status == "success",
                     GitHubTrendingItem.description_zh.is_not(None),
                     GitHubTrendingItem.description_zh != "",
@@ -187,7 +260,13 @@ class GitHubTrendingService:
         for repo_full_name, description_zh, _ in rows:
             key = (repo_full_name or "").strip().lower()
             value = (description_zh or "").strip()
-            if key and value and self._is_acceptable_zh(value) and key not in mapping:
+            if (
+                key
+                and value
+                and value != fallback_value
+                and self._is_acceptable_zh(value)
+                and key not in mapping
+            ):
                 mapping[key] = value
         return mapping
 
@@ -250,7 +329,7 @@ class GitHubTrendingService:
                     {"role": "user", "content": user_prompt},
                 ],
             },
-            "timeout": 45,
+            "timeout": min(12.0, max(2.0, float(settings.openai_timeout_seconds))),
         }
 
         try:
@@ -326,7 +405,10 @@ class GitHubTrendingService:
                     },
                 ],
             },
-            "timeout": 45,
+            "timeout": min(
+                TRANSLATION_SINGLE_TIMEOUT_SECONDS,
+                max(1.5, float(settings.openai_timeout_seconds)),
+            ),
         }
 
         try:
@@ -348,8 +430,13 @@ class GitHubTrendingService:
             logger.warning("GitHub 简介单条翻译失败，回退原文: %s", error)
             return None
 
-    def _enrich_description_zh(self, week_key: str, items: list[TrendingItemPayload]) -> None:
-        cache = self._load_week_translation_cache(week_key)
+    def _enrich_description_zh(
+        self,
+        period_type: str,
+        period_key: str,
+        items: list[TrendingItemPayload],
+    ) -> None:
+        cache = self._load_period_translation_cache(period_type, period_key)
         pending_pairs: list[tuple[int, str]] = []
 
         for idx, item in enumerate(items):
@@ -373,14 +460,19 @@ class GitHubTrendingService:
         translated_map = self._translate_descriptions_to_zh_batch(
             [text for _, text in pending_pairs]
         )
-        for batch_index, (item_index, original_text) in enumerate(pending_pairs):
+        single_retry_budget = TRANSLATION_SINGLE_RETRY_MAX
+        for batch_index, (item_index, _original_text) in enumerate(pending_pairs):
             translated = self._safe_text(translated_map.get(batch_index, ""))
             if translated:
                 items[item_index].description_zh = translated
                 continue
-            items[item_index].description_zh = self._translate_description_to_zh_single(
-                original_text
-            )
+            if single_retry_budget > 0:
+                single_retry_budget -= 1
+                single = self._translate_description_to_zh_single(_original_text)
+                if single:
+                    items[item_index].description_zh = single
+                    continue
+            items[item_index].description_zh = self._zh_translation_fallback()
 
     def _request_headers(self) -> dict:
         headers = {
@@ -793,9 +885,11 @@ class GitHubTrendingService:
                 meta.degrade_reason = "fetch_failed"
             return None, self._finalize_enrich_meta(meta, start)
 
-    def _fetch_trending_top10(self) -> list[TrendingItemPayload]:
+    def _fetch_trending_top10(self, period_type: str = "weekly") -> list[TrendingItemPayload]:
+        mode = self._normalize_period_type(period_type)
+        url = TRENDING_DAILY_URL if mode == "daily" else TRENDING_WEEKLY_URL
         response = requests.get(
-            TRENDING_WEEKLY_URL,
+            url,
             headers=self._request_headers(),
             timeout=20,
         )
@@ -849,7 +943,7 @@ class GitHubTrendingService:
                         week_text = text
                         break
 
-            match = STAR_WEEK_PATTERN.search(week_text)
+            match = STAR_PERIOD_PATTERN.search(week_text)
             if match:
                 stars_this_week = self._parse_int(match.group(1)) or 0
             else:
@@ -876,10 +970,29 @@ class GitHubTrendingService:
         return items
 
     def _upsert_failed_snapshot(self, week_key: str, snapshot_date: date, error_message: str) -> None:
+        self._upsert_failed_period_snapshot(
+            period_type="weekly",
+            period_key=week_key,
+            week_key=week_key,
+            snapshot_date=snapshot_date,
+            error_message=error_message,
+        )
+
+    def _upsert_failed_period_snapshot(
+        self,
+        *,
+        period_type: str,
+        period_key: str,
+        week_key: str,
+        snapshot_date: date,
+        error_message: str,
+    ) -> None:
+        store_week_key = week_key if period_type == "weekly" else period_key
         with Session(engine) as session:
             snapshot = session.exec(
                 select(GitHubTrendingSnapshot).where(
-                    GitHubTrendingSnapshot.week_key == week_key,
+                    GitHubTrendingSnapshot.period_type == period_type,
+                    GitHubTrendingSnapshot.period_key == period_key,
                     GitHubTrendingSnapshot.snapshot_date == snapshot_date,
                 )
             ).first()
@@ -887,7 +1000,9 @@ class GitHubTrendingService:
             now = datetime.now(self.timezone)
             if snapshot is None:
                 snapshot = GitHubTrendingSnapshot(
-                    week_key=week_key,
+                    week_key=store_week_key,
+                    period_type=period_type,
+                    period_key=period_key,
                     snapshot_date=snapshot_date,
                     captured_at=now,
                     is_weekly_archive=False,
@@ -899,6 +1014,7 @@ class GitHubTrendingService:
                 snapshot.captured_at = now
                 snapshot.fetch_status = "failed"
                 snapshot.fetch_error = error_message[:500]
+                snapshot.week_key = store_week_key
 
             session.commit()
 
@@ -932,18 +1048,39 @@ class GitHubTrendingService:
         snapshot_date: date,
         items: list[TrendingItemPayload],
     ) -> GitHubTrendingSnapshot:
+        return self._save_success_period_snapshot(
+            period_type="weekly",
+            period_key=week_key,
+            week_key=week_key,
+            snapshot_date=snapshot_date,
+            items=items,
+        )
+
+    def _save_success_period_snapshot(
+        self,
+        *,
+        period_type: str,
+        period_key: str,
+        week_key: str,
+        snapshot_date: date,
+        items: list[TrendingItemPayload],
+    ) -> GitHubTrendingSnapshot:
         now = datetime.now(self.timezone)
+        store_week_key = week_key if period_type == "weekly" else period_key
         with Session(engine) as session:
             snapshot = session.exec(
                 select(GitHubTrendingSnapshot).where(
-                    GitHubTrendingSnapshot.week_key == week_key,
+                    GitHubTrendingSnapshot.period_type == period_type,
+                    GitHubTrendingSnapshot.period_key == period_key,
                     GitHubTrendingSnapshot.snapshot_date == snapshot_date,
                 )
             ).first()
 
             if snapshot is None:
                 snapshot = GitHubTrendingSnapshot(
-                    week_key=week_key,
+                    week_key=store_week_key,
+                    period_type=period_type,
+                    period_key=period_key,
                     snapshot_date=snapshot_date,
                     captured_at=now,
                     fetch_status="success",
@@ -956,6 +1093,7 @@ class GitHubTrendingService:
                 snapshot.captured_at = now
                 snapshot.fetch_status = "success"
                 snapshot.fetch_error = None
+                snapshot.week_key = store_week_key
                 session.exec(
                     delete(GitHubTrendingItem).where(
                         GitHubTrendingItem.snapshot_id == snapshot.id
@@ -979,46 +1117,86 @@ class GitHubTrendingService:
                     )
                 )
 
-            self._archive_previous_week_if_needed(session, now.date())
+            if period_type == "weekly":
+                self._archive_previous_week_if_needed(session, now.date())
             session.commit()
             session.refresh(snapshot)
             return snapshot
 
     def _fetch_and_persist_current_week(self) -> GitHubTrendingSnapshot:
+        return self._fetch_and_persist_period("weekly")
+
+    def _fetch_and_persist_period(self, period_type: str) -> GitHubTrendingSnapshot:
         now = datetime.now(self.timezone)
-        week_key = self.week_key_for_date(now.date())
+        mode = self._normalize_period_type(period_type)
+        if mode == "daily":
+            period_key = now.date().isoformat()
+            week_key = period_key
+        else:
+            period_key = self.week_key_for_date(now.date())
+            week_key = period_key
         snapshot_date = now.date()
         try:
-            items = self._fetch_trending_top10()
-            self._enrich_description_zh(week_key, items)
+            items = self._fetch_trending_top10(mode)
+            self._enrich_description_zh(mode, period_key, items)
         except Exception as error:
-            logger.error("抓取 GitHub Trending 失败: %s", error, exc_info=True)
-            self._upsert_failed_snapshot(week_key, snapshot_date, str(error))
+            logger.error("抓取 GitHub Trending 失败(%s): %s", mode, error, exc_info=True)
+            self._upsert_failed_period_snapshot(
+                period_type=mode,
+                period_key=period_key,
+                week_key=week_key,
+                snapshot_date=snapshot_date,
+                error_message=str(error),
+            )
             raise
 
-        return self._save_success_snapshot(week_key, snapshot_date, items)
+        return self._save_success_period_snapshot(
+            period_type=mode,
+            period_key=period_key,
+            week_key=week_key,
+            snapshot_date=snapshot_date,
+            items=items,
+        )
 
     async def refresh_current_week_snapshot(self) -> GitHubTrendingSnapshot:
+        return await self.refresh_snapshot("weekly")
+
+    async def refresh_snapshot(self, period_type: str = "weekly") -> GitHubTrendingSnapshot:
         with obs_scope("SVC.GITHUB_TRENDS.REFRESH", "WORKFLOW_NODE"):
             if self.refresh_lock.locked():
                 raise RefreshInProgressError("GitHub 趋势更新中")
 
             async with self.refresh_lock:
-                emit_obs_event(level="INFO", message="svc.github_trends.refresh.start")
-                snapshot = await asyncio.to_thread(self._fetch_and_persist_current_week)
-                bind_entities({"week_key": snapshot.week_key})
+                mode = self._normalize_period_type(period_type)
+                emit_obs_event(
+                    level="INFO",
+                    message="svc.github_trends.refresh.start",
+                    payload={"period_type": mode},
+                )
+                snapshot = await asyncio.to_thread(self._fetch_and_persist_period, mode)
+                bind_entities({"week_key": snapshot.week_key, "period_key": snapshot.period_key})
                 emit_obs_event(
                     level="INFO",
                     message="svc.github_trends.refresh.done",
-                    entities={"week_key": snapshot.week_key},
-                    payload={"snapshot_date": snapshot.snapshot_date.isoformat()},
+                    entities={"week_key": snapshot.week_key, "period_key": snapshot.period_key},
+                    payload={
+                        "snapshot_date": snapshot.snapshot_date.isoformat(),
+                        "period_type": snapshot.period_type,
+                        "period_key": snapshot.period_key,
+                    },
                 )
                 return snapshot
 
     def is_refresh_running(self) -> bool:
         return self.refresh_lock.locked()
 
-    def _snapshot_to_dict(self, snapshot: GitHubTrendingSnapshot, requested_week_key: str) -> dict:
+    def _snapshot_to_dict(
+        self,
+        snapshot: GitHubTrendingSnapshot,
+        requested_week_key: str,
+        requested_period_type: str = "weekly",
+        requested_period_key: Optional[str] = None,
+    ) -> dict:
         with Session(engine) as session:
             items = session.exec(
                 select(GitHubTrendingItem)
@@ -1029,6 +1207,8 @@ class GitHubTrendingService:
             latest_failed = session.exec(
                 select(GitHubTrendingSnapshot)
                 .where(
+                    GitHubTrendingSnapshot.period_type == snapshot.period_type,
+                    GitHubTrendingSnapshot.period_key == snapshot.period_key,
                     GitHubTrendingSnapshot.week_key == requested_week_key,
                     GitHubTrendingSnapshot.fetch_status == "failed",
                 )
@@ -1038,10 +1218,17 @@ class GitHubTrendingService:
         return {
             "week_key": snapshot.week_key,
             "requested_week_key": requested_week_key,
+            "period_type": snapshot.period_type,
+            "requested_period_type": requested_period_type,
+            "period_key": snapshot.period_key,
+            "requested_period_key": requested_period_key or requested_week_key,
             "snapshot_date": snapshot.snapshot_date.isoformat(),
             "captured_at": snapshot.captured_at.isoformat(),
             "is_weekly_archive": snapshot.is_weekly_archive,
-            "is_stale": snapshot.week_key != requested_week_key,
+            "is_stale": (
+                snapshot.period_type != requested_period_type
+                or snapshot.period_key != (requested_period_key or requested_week_key)
+            ),
             "is_refreshing": self.is_refresh_running(),
             "fetch_error": latest_failed.fetch_error if latest_failed else None,
             "items": [
@@ -1062,11 +1249,21 @@ class GitHubTrendingService:
         }
 
     def _latest_success_snapshot_for_week(self, week_key: str) -> Optional[GitHubTrendingSnapshot]:
+        return self._latest_success_snapshot_for_period("weekly", week_key)
+
+    def _latest_success_snapshot_for_period(
+        self,
+        period_type: str,
+        period_key: str,
+    ) -> Optional[GitHubTrendingSnapshot]:
+        mode = self._normalize_period_type(period_type)
+        normalized_key = self._normalize_period_key(mode, period_key)
         with Session(engine) as session:
             archive = session.exec(
                 select(GitHubTrendingSnapshot)
                 .where(
-                    GitHubTrendingSnapshot.week_key == week_key,
+                    GitHubTrendingSnapshot.period_type == mode,
+                    GitHubTrendingSnapshot.period_key == normalized_key,
                     GitHubTrendingSnapshot.fetch_status == "success",
                     GitHubTrendingSnapshot.is_weekly_archive == True,  # noqa: E712
                 )
@@ -1078,76 +1275,140 @@ class GitHubTrendingService:
             return session.exec(
                 select(GitHubTrendingSnapshot)
                 .where(
-                    GitHubTrendingSnapshot.week_key == week_key,
+                    GitHubTrendingSnapshot.period_type == mode,
+                    GitHubTrendingSnapshot.period_key == normalized_key,
                     GitHubTrendingSnapshot.fetch_status == "success",
                 )
                 .order_by(desc(GitHubTrendingSnapshot.captured_at))
             ).first()
 
-    def _latest_success_snapshot_global(self) -> Optional[GitHubTrendingSnapshot]:
+    def _latest_success_snapshot_global(
+        self,
+        period_type: Optional[str] = None,
+    ) -> Optional[GitHubTrendingSnapshot]:
+        mode = self._normalize_period_type(period_type or "weekly")
         with Session(engine) as session:
-            return session.exec(
+            statement = (
                 select(GitHubTrendingSnapshot)
-                .where(GitHubTrendingSnapshot.fetch_status == "success")
+                .where(
+                    GitHubTrendingSnapshot.fetch_status == "success",
+                    GitHubTrendingSnapshot.period_type == mode,
+                )
                 .order_by(desc(GitHubTrendingSnapshot.captured_at))
-            ).first()
+            )
+            return session.exec(statement).first()
 
-    def get_snapshot(self, week_key: Optional[str] = None) -> dict:
+    def get_snapshot(
+        self,
+        week_key: Optional[str] = None,
+        period_type: str = "weekly",
+        period_key: Optional[str] = None,
+    ) -> dict:
         with obs_scope(
             "SVC.GITHUB_TRENDS.GET_SNAPSHOT",
             "DB_READ",
-            entities={"week_key": week_key},
+            entities={
+                "week_key": week_key,
+                "period_type": period_type,
+                "period_key": period_key,
+            },
         ):
-            target_week_key = (
-                self._normalize_week_key(week_key) if week_key else self.current_week_key()
-            )
-            snapshot = self._latest_success_snapshot_for_week(target_week_key)
+            mode = self._normalize_period_type(period_type)
+            if mode == "weekly":
+                target_period_key = self._normalize_week_key(
+                    period_key or week_key or self.current_week_key()
+                )
+                target_week_key = target_period_key
+            else:
+                target_period_key = self._normalize_daily_key(
+                    period_key or self.current_daily_key()
+                )
+                target_week_key = week_key or target_period_key
+
+            snapshot = self._latest_success_snapshot_for_period(mode, target_period_key)
             if snapshot is None:
-                snapshot = self._latest_success_snapshot_global()
+                snapshot = self._latest_success_snapshot_global(mode)
             if snapshot is None:
                 raise ValueError("暂无可用的 GitHub 趋势快照，请先手动更新")
             emit_obs_event(
                 level="INFO",
                 message="svc.github_trends.get_snapshot",
-                entities={"week_key": target_week_key},
+                entities={
+                    "week_key": target_week_key,
+                    "period_type": mode,
+                    "period_key": target_period_key,
+                },
             )
-            return self._snapshot_to_dict(snapshot, target_week_key)
+            return self._snapshot_to_dict(
+                snapshot,
+                target_week_key,
+                requested_period_type=mode,
+                requested_period_key=target_period_key,
+            )
 
     def list_available_weeks(self) -> list[dict]:
-        with obs_scope("SVC.GITHUB_TRENDS.WEEKS", "DB_READ"):
+        weekly = self.list_available_periods("weekly", limit=52)
+        return [
+            {
+                "week_key": item["period_key"],
+                "latest_snapshot_date": item["latest_snapshot_date"],
+                "latest_captured_at": item["latest_captured_at"],
+                "has_archive": item.get("has_archive", False),
+            }
+            for item in weekly
+        ]
+
+    def list_available_periods(self, period_type: str, limit: int = 12) -> list[dict]:
+        mode = self._normalize_period_type(period_type)
+        with obs_scope("SVC.GITHUB_TRENDS.PERIODS", "DB_READ"):
             with Session(engine) as session:
                 snapshots = session.exec(
                     select(GitHubTrendingSnapshot)
-                    .where(GitHubTrendingSnapshot.fetch_status == "success")
+                    .where(
+                        GitHubTrendingSnapshot.fetch_status == "success",
+                        GitHubTrendingSnapshot.period_type == mode,
+                    )
                     .order_by(desc(GitHubTrendingSnapshot.captured_at))
                 ).all()
 
-            by_week: dict[str, dict] = {}
+            by_period: dict[str, dict] = {}
             for snapshot in snapshots:
-                week_key = snapshot.week_key
-                week_entry = by_week.get(week_key)
-                if week_entry is None:
-                    by_week[week_key] = {
-                        "week_key": week_key,
+                period_key = snapshot.period_key or snapshot.week_key
+                period_entry = by_period.get(period_key)
+                if period_entry is None:
+                    by_period[period_key] = {
+                        "period_type": mode,
+                        "period_key": period_key,
                         "latest_snapshot_date": snapshot.snapshot_date.isoformat(),
                         "latest_captured_at": snapshot.captured_at.isoformat(),
                         "has_archive": bool(snapshot.is_weekly_archive),
                     }
                 else:
-                    week_entry["has_archive"] = (
-                        bool(week_entry["has_archive"]) or bool(snapshot.is_weekly_archive)
+                    period_entry["has_archive"] = (
+                        bool(period_entry["has_archive"]) or bool(snapshot.is_weekly_archive)
                     )
 
-            ordered = sorted(by_week.values(), key=lambda item: item["week_key"], reverse=True)
+            ordered = sorted(by_period.values(), key=lambda item: item["period_key"], reverse=True)[
+                : max(1, limit)
+            ]
             emit_obs_event(
                 level="INFO",
-                message="svc.github_trends.list_weeks",
-                payload={"total": len(ordered)},
+                message="svc.github_trends.list_periods",
+                payload={"total": len(ordered), "period_type": mode},
             )
             return ordered
 
     def _find_week_item(self, week_key: str, repo_full_name: str) -> TrendingItemPayload:
-        normalized_week = self._normalize_week_key(week_key)
+        return self._find_period_item("weekly", week_key, repo_full_name)
+
+    def _find_period_item(
+        self,
+        period_type: str,
+        period_key: str,
+        repo_full_name: str,
+    ) -> TrendingItemPayload:
+        mode = self._normalize_period_type(period_type)
+        normalized_period_key = self._normalize_period_key(mode, period_key)
         normalized_repo = (repo_full_name or "").strip().lower()
         if not normalized_repo:
             raise ValueError("repo_full_name 不能为空")
@@ -1156,13 +1417,14 @@ class GitHubTrendingService:
             snapshot = session.exec(
                 select(GitHubTrendingSnapshot)
                 .where(
-                    GitHubTrendingSnapshot.week_key == normalized_week,
+                    GitHubTrendingSnapshot.period_type == mode,
+                    GitHubTrendingSnapshot.period_key == normalized_period_key,
                     GitHubTrendingSnapshot.fetch_status == "success",
                 )
                 .order_by(desc(GitHubTrendingSnapshot.captured_at))
             ).first()
             if snapshot is None:
-                raise ValueError(f"周榜数据不存在: {normalized_week}")
+                raise ValueError(f"{mode} 数据不存在: {normalized_period_key}")
 
             rows = session.exec(
                 select(GitHubTrendingItem).where(
@@ -1581,17 +1843,21 @@ class GitHubTrendingService:
 
     def _single_material_content(
         self,
-        week_key: str,
+        period_key: str,
         item: TrendingItemPayload,
         enrichment_payload: Optional[dict[str, Any]] = None,
+        period_type: str = "weekly",
     ) -> str:
+        mode = self._normalize_period_type(period_type)
+        period_label = "周榜" if mode == "weekly" else "日榜"
+        star_label = "本周新增 Star" if mode == "weekly" else "今日新增 Star"
         description = item.description_zh or item.description or "暂无简介"
         lines = [
-            f"# GitHub 周榜项目观察（{week_key} #{item.rank}）",
+            f"# GitHub {period_label}项目观察（{period_key} #{item.rank}）",
             "",
             f"- 项目：{item.repo_full_name}",
             f"- 作者：{item.owner}",
-            f"- 本周新增 Star：{item.stars_this_week}",
+            f"- {star_label}：{item.stars_this_week}",
             f"- 项目链接：{item.repo_url}",
             f"- 项目简介：{description}",
         ]
@@ -1638,17 +1904,22 @@ class GitHubTrendingService:
 
     def add_item_to_materials(
         self,
-        week_key: str,
+        week_key: Optional[str],
         repo_full_name: str,
         enhance: bool = True,
+        *,
+        period_type: str = "weekly",
+        period_key: Optional[str] = None,
     ) -> dict:
+        mode = self._normalize_period_type(period_type)
+        resolved_period_key = self._normalize_period_key(mode, period_key or week_key)
+        period_label = "周榜" if mode == "weekly" else "日榜"
         with obs_scope(
             "SVC.GITHUB_TRENDS.ADD_ITEM",
             "WORKFLOW_NODE",
-            entities={"week_key": week_key},
+            entities={"week_key": week_key, "period_type": mode, "period_key": resolved_period_key},
         ):
-            normalized_week = self._normalize_week_key(week_key)
-            item = self._find_week_item(normalized_week, repo_full_name)
+            item = self._find_period_item(mode, resolved_period_key, repo_full_name)
             enrichment_payload, enrich_meta = self._get_repo_enrichment(
                 repo_full_name=item.repo_full_name,
                 enhance=enhance,
@@ -1660,7 +1931,7 @@ class GitHubTrendingService:
                         Material.source_url == item.repo_url,
                         Material.tags.is_not(None),
                         Material.tags.like("%github-trending%"),
-                        Material.tags.like(f"%{normalized_week}%"),
+                        Material.tags.like(f"%{resolved_period_key}%"),
                     )
                 ).first()
 
@@ -1694,26 +1965,41 @@ class GitHubTrendingService:
                         source_url=existing.source_url,
                     )
                     updated = True
-                bind_entities({"material_id": existing.id, "week_key": normalized_week})
+                bind_entities(
+                    {
+                        "material_id": existing.id,
+                        "week_key": resolved_period_key,
+                        "period_type": mode,
+                        "period_key": resolved_period_key,
+                    }
+                )
                 emit_obs_event(
                     level="INFO",
                     message="svc.github_trends.add_item.existing",
-                    entities={"material_id": existing.id, "week_key": normalized_week},
+                    entities={
+                        "material_id": existing.id,
+                        "week_key": resolved_period_key,
+                        "period_type": mode,
+                        "period_key": resolved_period_key,
+                    },
                     payload={"updated": updated},
                 )
                 return {
                     "material_id": existing.id,
                     "created": False,
                     "updated": updated,
+                    "period_type": mode,
+                    "period_key": resolved_period_key,
                     "enrich": enrich_meta.to_dict(),
                 }
 
-            title = f"[GitHub周榜 {normalized_week} #{item.rank}] {item.repo_full_name}"
-            tags = f"github-trending,周榜,{normalized_week}"
+            title = f"[GitHub{period_label} {resolved_period_key} #{item.rank}] {item.repo_full_name}"
+            tags = f"github-trending,{period_label},{resolved_period_key}"
             content = self._single_material_content(
-                normalized_week,
+                resolved_period_key,
                 item,
                 enrichment_payload=enrichment_payload,
+                period_type=mode,
             )
 
             material = self.material_service.create_material(
@@ -1722,16 +2008,30 @@ class GitHubTrendingService:
                 tags=tags,
                 source_url=item.repo_url,
             )
-            bind_entities({"material_id": material.id, "week_key": normalized_week})
+            bind_entities(
+                {
+                    "material_id": material.id,
+                    "week_key": resolved_period_key,
+                    "period_type": mode,
+                    "period_key": resolved_period_key,
+                }
+            )
             emit_obs_event(
                 level="INFO",
                 message="svc.github_trends.add_item.created",
-                entities={"material_id": material.id, "week_key": normalized_week},
+                entities={
+                    "material_id": material.id,
+                    "week_key": resolved_period_key,
+                    "period_type": mode,
+                    "period_key": resolved_period_key,
+                },
             )
             return {
                 "material_id": material.id,
                 "created": True,
                 "updated": False,
+                "period_type": mode,
+                "period_key": resolved_period_key,
                 "enrich": enrich_meta.to_dict(),
             }
 
@@ -1809,17 +2109,21 @@ class GitHubTrendingService:
 
     def build_item_rewrite_markdown(
         self,
-        week_key: str,
+        week_key: Optional[str],
         repo_full_name: str,
         enhance: bool = True,
+        *,
+        period_type: str = "weekly",
+        period_key: Optional[str] = None,
     ) -> dict:
+        mode = self._normalize_period_type(period_type)
+        resolved_period_key = self._normalize_period_key(mode, period_key or week_key)
         with obs_scope(
             "SVC.GITHUB_TRENDS.BUILD_REWRITE",
             "WORKFLOW_NODE",
-            entities={"week_key": week_key},
+            entities={"week_key": week_key, "period_type": mode, "period_key": resolved_period_key},
         ):
-            normalized_week = self._normalize_week_key(week_key)
-            item = self._find_week_item(normalized_week, repo_full_name)
+            item = self._find_period_item(mode, resolved_period_key, repo_full_name)
             enrichment_payload, enrich_meta = self._get_repo_enrichment(
                 repo_full_name=item.repo_full_name,
                 enhance=enhance,
@@ -1832,9 +2136,10 @@ class GitHubTrendingService:
                 content = "\n".join(
                     [
                         self._single_material_content(
-                            normalized_week,
+                            resolved_period_key,
                             item,
                             enrichment_payload=enrichment_payload,
+                            period_type=mode,
                         ),
                         "",
                         "## 仓库增强速览（结构化）",
@@ -1842,17 +2147,28 @@ class GitHubTrendingService:
                     ]
                 ).strip()
             else:
-                content = self._single_material_content(normalized_week, item)
+                content = self._single_material_content(
+                    resolved_period_key,
+                    item,
+                    period_type=mode,
+                )
 
             emit_obs_event(
                 level="INFO",
                 message="svc.github_trends.build_rewrite",
-                entities={"week_key": normalized_week},
+                entities={
+                    "week_key": resolved_period_key,
+                    "period_type": mode,
+                    "period_key": resolved_period_key,
+                },
                 payload={"repo_full_name": item.repo_full_name, "enhance": enhance},
             )
+            title_scope = "周榜" if mode == "weekly" else "日榜"
             return {
-                "title": f"{item.repo_full_name}（{normalized_week}）",
+                "title": f"{item.repo_full_name}（{title_scope} {resolved_period_key}）",
                 "content": content,
+                "period_type": mode,
+                "period_key": resolved_period_key,
                 "enrich": enrich_meta.to_dict(),
             }
 

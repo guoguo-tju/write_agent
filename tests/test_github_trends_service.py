@@ -156,6 +156,180 @@ def test_refresh_upserts_daily_snapshot(monkeypatch) -> None:
         assert hasattr(items[0], "description_zh")
 
 
+def test_refresh_daily_snapshot_persists_period_fields(monkeypatch) -> None:
+    _cleanup_tables()
+    service = get_github_trending_service()
+
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.requests.get",
+        lambda *args, **kwargs: _FakeResponse(SAMPLE_HTML.replace("this week", "today")),
+    )
+
+    asyncio.run(service.refresh_snapshot("daily"))
+
+    today = datetime.now(service.timezone).date()
+    today_key = today.isoformat()
+
+    with Session(engine) as session:
+        snapshot = session.exec(
+            select(GitHubTrendingSnapshot).where(
+                GitHubTrendingSnapshot.period_type == "daily",
+                GitHubTrendingSnapshot.period_key == today_key,
+                GitHubTrendingSnapshot.snapshot_date == today,
+            )
+        ).first()
+
+    assert snapshot is not None
+    assert snapshot.period_type == "daily"
+    assert snapshot.period_key == today_key
+
+
+def test_refresh_daily_parses_today_stars(monkeypatch) -> None:
+    _cleanup_tables()
+    service = get_github_trending_service()
+
+    html = SAMPLE_HTML.replace("350 stars this week", "350 stars today")
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.requests.get",
+        lambda *args, **kwargs: _FakeResponse(html),
+    )
+
+    asyncio.run(service.refresh_snapshot("daily"))
+    data = service.get_snapshot(period_type="daily")
+
+    assert data["period_type"] == "daily"
+    assert data["items"][0]["stars_this_week"] == 350
+
+
+def test_refresh_daily_enriches_description_zh(monkeypatch) -> None:
+    _cleanup_tables()
+    service = get_github_trending_service()
+
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.requests.get",
+        lambda *args, **kwargs: _FakeResponse(SAMPLE_HTML.replace("this week", "today")),
+    )
+    monkeypatch.setattr(
+        service,
+        "_translate_descriptions_to_zh_batch",
+        lambda texts: {0: "仓库一中文简介", 1: "仓库二中文简介"},
+    )
+    monkeypatch.setattr(
+        service,
+        "_translate_description_to_zh_single",
+        lambda text: None,
+    )
+
+    asyncio.run(service.refresh_snapshot("daily"))
+    data = service.get_snapshot(period_type="daily")
+
+    assert data["period_type"] == "daily"
+    assert data["items"][0]["description_zh"] == "仓库一中文简介"
+    assert data["items"][1]["description_zh"] == "仓库二中文简介"
+
+
+def test_refresh_daily_translation_failure_uses_zh_fallback(monkeypatch) -> None:
+    _cleanup_tables()
+    service = get_github_trending_service()
+
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.requests.get",
+        lambda *args, **kwargs: _FakeResponse(SAMPLE_HTML.replace("this week", "today")),
+    )
+    monkeypatch.setattr(service, "_translate_descriptions_to_zh_batch", lambda texts: {})
+    monkeypatch.setattr(service, "_translate_description_to_zh_single", lambda text: None)
+
+    asyncio.run(service.refresh_snapshot("daily"))
+    data = service.get_snapshot(period_type="daily")
+
+    assert data["items"][0]["description_zh"] == "该项目英文简介暂未完成中文翻译，请稍后重试。"
+
+
+def test_refresh_daily_missing_batch_translation_uses_single_retry(monkeypatch) -> None:
+    _cleanup_tables()
+    service = get_github_trending_service()
+
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.requests.get",
+        lambda *args, **kwargs: _FakeResponse(SAMPLE_HTML.replace("this week", "today")),
+    )
+    monkeypatch.setattr(
+        service,
+        "_translate_descriptions_to_zh_batch",
+        lambda texts: {0: "仓库一中文简介"},
+    )
+    monkeypatch.setattr(
+        service,
+        "_translate_description_to_zh_single",
+        lambda text: "单条补翻中文",
+    )
+
+    asyncio.run(service.refresh_snapshot("daily"))
+    data = service.get_snapshot(period_type="daily")
+
+    assert data["items"][0]["description_zh"] == "仓库一中文简介"
+    assert data["items"][1]["description_zh"] == "单条补翻中文"
+
+
+def test_translation_cache_skips_fallback_value(monkeypatch) -> None:
+    _cleanup_tables()
+    service = get_github_trending_service()
+    fallback_value = service._zh_translation_fallback()
+
+    with Session(engine) as session:
+        snapshot = GitHubTrendingSnapshot(
+            week_key="2026-03-31",
+            period_type="daily",
+            period_key="2026-03-31",
+            snapshot_date=datetime.now(service.timezone).date(),
+            fetch_status="success",
+            is_weekly_archive=False,
+        )
+        session.add(snapshot)
+        session.commit()
+        session.refresh(snapshot)
+
+        session.add(
+            GitHubTrendingItem(
+                snapshot_id=snapshot.id,
+                rank=1,
+                repo_full_name="owner/repo",
+                repo_name="repo",
+                owner="owner",
+                description="English desc",
+                description_zh=fallback_value,
+                repo_url="https://github.com/owner/repo",
+                stars_this_week=100,
+                language="Python",
+                total_stars=1000,
+            )
+        )
+        session.commit()
+
+    cache = service._load_period_translation_cache("daily", "2026-03-31")
+    assert cache == {}
+
+
+def test_list_daily_periods_returns_recent_7_days(monkeypatch) -> None:
+    _cleanup_tables()
+    service = get_github_trending_service()
+
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.requests.get",
+        lambda *args, **kwargs: _FakeResponse(SAMPLE_HTML.replace("this week", "today")),
+    )
+
+    for _ in range(2):
+        asyncio.run(service.refresh_snapshot("daily"))
+
+    periods = service.list_available_periods("daily", limit=7)
+
+    assert periods
+    assert len(periods) <= 7
+    assert periods[0]["period_type"] == "daily"
+    assert "period_key" in periods[0]
+
+
 def test_add_item_material_dedup(monkeypatch) -> None:
     _cleanup_tables()
     service = get_github_trending_service()

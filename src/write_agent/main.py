@@ -48,7 +48,7 @@ WORKFLOW_STALE_RECOVERY_INTERVAL_SECONDS = 15.0
 
 
 async def _github_trending_scheduler_loop():
-    """每日定时抓取 GitHub 趋势。"""
+    """每日定时抓取 GitHub 趋势（daily + weekly）。"""
     tz = ZoneInfo(settings.github_trending_timezone)
     service = get_github_trending_service()
 
@@ -77,8 +77,41 @@ async def _github_trending_scheduler_loop():
                     message="github_trending.scheduler.tick",
                     payload={"next_run": next_run.isoformat()},
                 )
-                await service.refresh_current_week_snapshot()
-                logger.info("GitHub 趋势定时抓取成功")
+                for period_type in ("daily", "weekly"):
+                    try:
+                        emit_obs_event(
+                            level="INFO",
+                            message="github_trending.scheduler.period_start",
+                            payload={"period_type": period_type},
+                        )
+                        await service.refresh_snapshot(period_type=period_type)
+                        logger.info("GitHub 趋势定时抓取成功: %s", period_type)
+                        emit_obs_event(
+                            level="INFO",
+                            message="github_trending.scheduler.period_success",
+                            payload={"period_type": period_type},
+                        )
+                    except RefreshInProgressError:
+                        logger.info("GitHub 趋势抓取已在执行中，跳过本轮定时任务: %s", period_type)
+                        emit_obs_event(
+                            level="WARNING",
+                            message="github_trending.scheduler.period_skipped",
+                            error_code="E_TREND_REFRESH_RUNNING",
+                            payload={"period_type": period_type},
+                        )
+                    except Exception as error:
+                        logger.error(
+                            "GitHub 趋势定时抓取失败(%s): %s",
+                            period_type,
+                            error,
+                            exc_info=True,
+                        )
+                        emit_obs_event(
+                            level="ERROR",
+                            message="github_trending.scheduler.period_failed",
+                            error_code="E_TREND_SCHEDULER_FAILED",
+                            payload={"period_type": period_type, "error": str(error)},
+                        )
                 emit_obs_event(
                     level="INFO",
                     message="github_trending.scheduler.success",

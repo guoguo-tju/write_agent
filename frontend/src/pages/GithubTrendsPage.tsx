@@ -7,11 +7,13 @@ import { formatMessage, useLanguage } from "../i18n";
 import {
   addGithubTrendItemToMaterials,
   buildGithubTrendItemRewrite,
+  getGithubTrendPeriods,
   getGithubTrendWeeks,
   getGithubTrends,
   refreshGithubTrends,
   type GithubTrendEnrichMeta,
   type GithubTrendItem,
+  type GithubTrendPeriodOption,
   type GithubTrendSnapshot,
   type GithubTrendWeekOption,
 } from "../services/api";
@@ -24,6 +26,8 @@ type FeedbackState = {
   materialId?: number;
 };
 
+type TrendScope = "daily" | "weekly";
+
 const calcCurrentWeekKey = () => {
   const now = new Date();
   const target = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
@@ -32,6 +36,14 @@ const calcCurrentWeekKey = () => {
   const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
   const week = Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
   return `${target.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+};
+
+const calcCurrentDayKey = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
 const formatDateTime = (value: string, locale: string) => {
@@ -45,18 +57,21 @@ const formatDateTime = (value: string, locale: string) => {
 const pickDescription = (item: GithubTrendItem, lang: "zh" | "en"): string => {
   const original = item.description?.trim() || "";
   const translated = item.description_zh?.trim() || "";
+  const hasChinese = /[\u4e00-\u9fff]/.test(original);
 
   if (lang === "zh") {
-    return translated || original || "暂无简介";
+    return translated || (hasChinese ? original : "该项目英文简介暂未完成中文翻译，请稍后重试。");
   }
   return original || translated || "No description";
 };
 
-const markdownForDigest = (weekKey: string, items: GithubTrendItem[]) => {
+const markdownForDigest = (scope: TrendScope, periodKey: string, items: GithubTrendItem[]) => {
+  const titlePrefix = scope === "daily" ? "GitHub 日榜 Top10" : "GitHub 周榜 Top10";
+  const starLabel = scope === "daily" ? "本日新增Star" : "本周新增Star";
   const lines = [
-    `# GitHub 周榜 Top10（${weekKey}）`,
+    `# ${titlePrefix}（${periodKey}）`,
     "",
-    "| 排名 | 项目 | 作者 | 本周新增Star | 简介 | 链接 |",
+    `| 排名 | 项目 | 作者 | ${starLabel} | 简介 | 链接 |`,
     "| --- | --- | --- | ---: | --- | --- |",
   ];
 
@@ -90,8 +105,12 @@ export const GithubTrendsPage: React.FC = () => {
   const locale = lang === "zh" ? "zh-CN" : "en-US";
   const tf = (template: string, vars: Record<string, string | number>) =>
     formatMessage(template, vars);
+
+  const [trendScope, setTrendScope] = useState<TrendScope>("weekly");
   const [weeks, setWeeks] = useState<GithubTrendWeekOption[]>([]);
+  const [days, setDays] = useState<GithubTrendPeriodOption[]>([]);
   const [selectedWeekKey, setSelectedWeekKey] = useState(calcCurrentWeekKey());
+  const [selectedDayKey, setSelectedDayKey] = useState(calcCurrentDayKey());
   const [snapshot, setSnapshot] = useState<GithubTrendSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -99,7 +118,11 @@ export const GithubTrendsPage: React.FC = () => {
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [enhanceEnabled, setEnhanceEnabled] = useState(true);
 
-  const effectiveWeekKey = snapshot?.week_key || selectedWeekKey;
+  const effectivePeriodKey =
+    trendScope === "daily"
+      ? snapshot?.period_key || selectedDayKey
+      : snapshot?.period_key || snapshot?.week_key || selectedWeekKey;
+
   const sortedItems = useMemo(() => {
     if (!snapshot?.items?.length) {
       return [];
@@ -128,21 +151,61 @@ export const GithubTrendsPage: React.FC = () => {
     return weeks;
   }, [selectedWeekKey, weeks]);
 
+  const dayOptions = useMemo(() => {
+    const set = new Set<string>(days.map((item) => item.period_key));
+    if (!set.has(selectedDayKey)) {
+      return [
+        {
+          period_type: "daily" as const,
+          period_key: selectedDayKey,
+          latest_snapshot_date: selectedDayKey,
+          latest_captured_at: "",
+          has_archive: false,
+        },
+        ...days,
+      ];
+    }
+    return days;
+  }, [days, selectedDayKey]);
+
   const loadWeeks = async () => {
     try {
       const result = await getGithubTrendWeeks();
       setWeeks(result);
+      return result;
     } catch (error) {
       console.error("加载周列表失败:", error);
+      return [] as GithubTrendWeekOption[];
     }
   };
 
-  const loadSnapshot = async (weekKey?: string) => {
+  const loadDays = async () => {
+    try {
+      const result = await getGithubTrendPeriods("daily");
+      setDays(result);
+      return result;
+    } catch (error) {
+      console.error("加载日榜周期失败:", error);
+      return [] as GithubTrendPeriodOption[];
+    }
+  };
+
+  const loadSnapshot = async (scope: TrendScope, periodKey?: string) => {
     setIsLoading(true);
     try {
-      const data = await getGithubTrends(weekKey);
+      const data = await getGithubTrends({
+        periodType: scope,
+        periodKey,
+        weekKey: scope === "weekly" ? periodKey : undefined,
+      });
       setSnapshot(data);
       setFeedback(null);
+      if (scope === "weekly" && data.week_key) {
+        setSelectedWeekKey(data.week_key);
+      }
+      if (scope === "daily" && data.period_key) {
+        setSelectedDayKey(data.period_key);
+      }
     } catch (error) {
       console.error("加载趋势数据失败:", error);
       setSnapshot(null);
@@ -154,8 +217,9 @@ export const GithubTrendsPage: React.FC = () => {
 
   useEffect(() => {
     void (async () => {
-      await Promise.all([loadWeeks(), loadSnapshot(selectedWeekKey)]);
+      await Promise.all([loadWeeks(), loadSnapshot("weekly", selectedWeekKey)]);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -195,7 +259,41 @@ export const GithubTrendsPage: React.FC = () => {
 
   const handleSelectWeek = async (weekKey: string) => {
     setSelectedWeekKey(weekKey);
-    await loadSnapshot(weekKey);
+    setTrendScope("weekly");
+    await loadSnapshot("weekly", weekKey);
+  };
+
+  const handleSelectDay = async (dayKey: string) => {
+    setSelectedDayKey(dayKey);
+    setTrendScope("daily");
+    await loadSnapshot("daily", dayKey);
+  };
+
+  const handleSelectScope = async (nextScope: TrendScope) => {
+    if (nextScope === trendScope) {
+      return;
+    }
+    setTrendScope(nextScope);
+    setFeedback(null);
+
+    if (nextScope === "daily") {
+      const dailyPeriods = await loadDays();
+      const resolvedDayKey =
+        dailyPeriods.some((item) => item.period_key === selectedDayKey)
+          ? selectedDayKey
+          : dailyPeriods[0]?.period_key || selectedDayKey;
+      setSelectedDayKey(resolvedDayKey);
+      await loadSnapshot("daily", resolvedDayKey);
+      return;
+    }
+
+    const weeklyPeriods = await loadWeeks();
+    const resolvedWeekKey =
+      weeklyPeriods.some((item) => item.week_key === selectedWeekKey)
+        ? selectedWeekKey
+        : weeklyPeriods[0]?.week_key || selectedWeekKey;
+    setSelectedWeekKey(resolvedWeekKey);
+    await loadSnapshot("weekly", resolvedWeekKey);
   };
 
   const handleRefresh = async () => {
@@ -206,15 +304,26 @@ export const GithubTrendsPage: React.FC = () => {
 
     setIsRefreshing(true);
     try {
-      const data = await refreshGithubTrends();
+      const data = await refreshGithubTrends({ periodType: trendScope });
       setSnapshot(data);
-      setSelectedWeekKey(data.week_key);
-      await loadWeeks();
-      setFeedback({ kind: "success", message: trendsText.refreshSuccess });
+      if (trendScope === "daily") {
+        setSelectedDayKey(data.period_key || selectedDayKey);
+        await loadDays();
+      } else {
+        setSelectedWeekKey(data.week_key);
+        await loadWeeks();
+      }
+      setFeedback({
+        kind: "success",
+        message:
+          trendScope === "daily"
+            ? trendsText.refreshSuccessDaily
+            : trendsText.refreshSuccessWeekly,
+      });
     } catch (error) {
       console.error("手动更新失败:", error);
       setFeedback({ kind: "error", message: trendsText.refreshFailed });
-      await loadSnapshot(selectedWeekKey);
+      await loadSnapshot(trendScope, trendScope === "daily" ? selectedDayKey : selectedWeekKey);
     } finally {
       setIsRefreshing(false);
     }
@@ -224,7 +333,11 @@ export const GithubTrendsPage: React.FC = () => {
     setRowActionKey(`add-${item.repo_full_name}`);
     try {
       const result = await addGithubTrendItemToMaterials(
-        effectiveWeekKey,
+        {
+          periodType: trendScope,
+          periodKey: effectivePeriodKey,
+          weekKey: trendScope === "weekly" ? effectivePeriodKey : undefined,
+        },
         item.repo_full_name,
         enhanceEnabled,
       );
@@ -233,10 +346,10 @@ export const GithubTrendsPage: React.FC = () => {
         kind: tokenMissing ? "info" : "success",
         message:
           (result.created
-          ? trendsText.addSuccessCreated
-          : result.updated
-            ? trendsText.addSuccessUpdated
-            : trendsText.addSuccessExisting) + enrichSuffix(result.enrich),
+            ? trendsText.addSuccessCreated
+            : result.updated
+              ? trendsText.addSuccessUpdated
+              : trendsText.addSuccessExisting) + enrichSuffix(result.enrich),
         materialId: result.material_id,
       });
     } catch (error) {
@@ -251,7 +364,11 @@ export const GithubTrendsPage: React.FC = () => {
     setRowActionKey(`rewrite-${item.repo_full_name}`);
     try {
       const payload = await buildGithubTrendItemRewrite(
-        effectiveWeekKey,
+        {
+          periodType: trendScope,
+          periodKey: effectivePeriodKey,
+          weekKey: trendScope === "weekly" ? effectivePeriodKey : undefined,
+        },
         item.repo_full_name,
         enhanceEnabled,
       );
@@ -271,7 +388,7 @@ export const GithubTrendsPage: React.FC = () => {
       navigate("/", {
         state: {
           prefillSource,
-          sourceType: "github-trend-item",
+          sourceType: trendScope === "daily" ? "github-trend-daily" : "github-trend-weekly",
           prefillTitle: tf(trendsText.rewriteTitleSingle, { name: item.repo_full_name }),
         },
       });
@@ -288,15 +405,31 @@ export const GithubTrendsPage: React.FC = () => {
       setFeedback({ kind: "error", message: trendsText.rewritePayloadMissing });
       return;
     }
-    const prefillSource = markdownForDigest(effectiveWeekKey, sortedItems);
+    const prefillSource = markdownForDigest(trendScope, effectivePeriodKey, sortedItems);
     navigate("/", {
       state: {
         prefillSource,
-        sourceType: "github-trend-weekly",
-        prefillTitle: tf(trendsText.rewriteTitleWeekly, { week: effectiveWeekKey }),
+        sourceType: trendScope === "daily" ? "github-trend-daily" : "github-trend-weekly",
+        prefillTitle:
+          trendScope === "daily"
+            ? tf(trendsText.rewriteTop10Daily, {})
+            : tf(trendsText.rewriteTop10Weekly, {}),
       },
     });
   };
+
+  const rewriteTop10Label =
+    trendScope === "daily" ? trendsText.rewriteTop10Daily : trendsText.rewriteTop10Weekly;
+
+  const periodLabel = trendScope === "daily" ? trendsText.dayLabel : trendsText.weekLabel;
+  const trendPeriods = trendScope === "daily" ? dayOptions : weekOptions;
+  const starsLabel = trendScope === "daily" ? trendsText.dailyStars : trendsText.weeklyStars;
+  const getPeriodKey = (period: GithubTrendPeriodOption | GithubTrendWeekOption) =>
+    "period_key" in period ? period.period_key : period.week_key;
+  const getPeriodLabel = (period: GithubTrendPeriodOption | GithubTrendWeekOption) =>
+    "period_key" in period
+      ? period.latest_snapshot_date || period.period_key
+      : period.week_key;
 
   return (
     <div className="github-trends-page">
@@ -310,17 +443,42 @@ export const GithubTrendsPage: React.FC = () => {
           </div>
 
           <div className="github-trends-controls">
-            <label className="github-trends-week-select">
-              <span>{trendsText.weekLabel}</span>
-              <select
-                value={selectedWeekKey}
-                onChange={(event) => {
-                  void handleSelectWeek(event.target.value);
+            <div className="github-trends-scope-toggle" role="tablist" aria-label={trendsText.scopeLabel}>
+              <button
+                type="button"
+                className={trendScope === "daily" ? "is-active" : ""}
+                onClick={() => {
+                  void handleSelectScope("daily");
                 }}
               >
-                {weekOptions.map((week) => (
-                  <option key={week.week_key} value={week.week_key}>
-                    {week.week_key}
+                {trendsText.scopeDaily}
+              </button>
+              <button
+                type="button"
+                className={trendScope === "weekly" ? "is-active" : ""}
+                onClick={() => {
+                  void handleSelectScope("weekly");
+                }}
+              >
+                {trendsText.scopeWeekly}
+              </button>
+            </div>
+
+            <label className="github-trends-period-select">
+              <span>{periodLabel}</span>
+              <select
+                value={trendScope === "daily" ? selectedDayKey : selectedWeekKey}
+                onChange={(event) => {
+                  if (trendScope === "daily") {
+                    void handleSelectDay(event.target.value);
+                  } else {
+                    void handleSelectWeek(event.target.value);
+                  }
+                }}
+              >
+                {trendPeriods.map((period) => (
+                  <option key={getPeriodKey(period)} value={getPeriodKey(period)}>
+                    {getPeriodLabel(period)}
                   </option>
                 ))}
               </select>
@@ -344,7 +502,7 @@ export const GithubTrendsPage: React.FC = () => {
               onClick={handleRewriteTop10}
               disabled={!snapshot?.items?.length}
             >
-              {trendsText.rewriteTop10}
+              {rewriteTop10Label}
             </button>
 
             <label className="github-trends-enhance-toggle">
@@ -399,7 +557,7 @@ export const GithubTrendsPage: React.FC = () => {
                   <th>{trendsText.project}</th>
                   <th>{trendsText.owner}</th>
                   <th>{trendsText.description}</th>
-                  <th>{trendsText.weeklyStars}</th>
+                  <th>{starsLabel}</th>
                   <th>{trendsText.link}</th>
                   <th>{trendsText.actions}</th>
                 </tr>
@@ -407,8 +565,8 @@ export const GithubTrendsPage: React.FC = () => {
               <tbody>
                 {sortedItems.map((item, index) => {
                   const rowBusy =
-                    rowActionKey === `add-${item.repo_full_name}`
-                    || rowActionKey === `rewrite-${item.repo_full_name}`;
+                    rowActionKey === `add-${item.repo_full_name}` ||
+                    rowActionKey === `rewrite-${item.repo_full_name}`;
                   const addBusy = rowActionKey === `add-${item.repo_full_name}`;
                   const rewriteBusy = rowActionKey === `rewrite-${item.repo_full_name}`;
                   const descriptionText = pickDescription(item, lang);

@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-03-31
+
+### Changed
+- 规范升级：`docs/specs/development-spec-v1.md` 升级到 `v1.2`，新增“热点集市中文化（MUST）”规则。
+- 明确要求：中文界面下热点列表简介/摘要必须为中文；若上游为英文，后端必须走 AI 翻译/总结生成中文。
+- 明确降级语义：AI 翻译失败时不得静默展示英文原文，必须返回中文降级文案，并保持可观测错误契约（`trace_id` 等）。
+- GitHub 趋势中文化实现收口：日榜与周榜均执行简介中文翻译增强，不再仅周榜翻译。
+- GitHub 趋势翻译失败时新增中文降级文案（`该项目英文简介暂未完成中文翻译，请稍后重试。`），前端中文界面不再回退展示英文原文。
+- GitHub 趋势翻译链路超时治理：批量翻译请求超时从固定 45s 收敛为短超时，失败后直接中文降级，不再逐条长超时重试，避免刷新长期占锁导致 `409 更新中`。
+
+### Verification
+- `rg -n "Spec Version|Last Updated|Hot Market Localization Rule|v1\\.2" docs/specs/development-spec-v1.md` 通过。
+- `PYTHONPATH=src uv run pytest -q tests/test_github_trends_service.py tests/test_github_trends_api.py` 通过（22 passed）。
+- `cd frontend && npm run build` 通过。
+- `POST /api/github-trends/refresh` (`period_type=daily`) 本地验证通过：返回 `description_zh` 为中文（示例：`开源前沿语音 AI`）。
+
+## 2026-03-30
+
+### Changed
+- GitHub 趋势升级为“双周期”：新增 `daily/weekly` 周期语义，页面支持日榜/周榜切换、周期选择与按周期手动刷新。
+- GitHub 趋势后端抓取链路支持 `daily`：调度任务改为每日同时刷新日榜与周榜，快照模型新增 `period_type/period_key` 字段并用于查询与存储隔离。
+- GitHub 趋势 API 扩展周期能力（保持兼容）：`GET /api/github-trends`、`POST /api/github-trends/refresh`、行级 `add-item/build-item` 均支持 `period_type/period_key`。
+- 新增 `GET /api/github-trends/periods` 周期列表接口，前端日榜下拉改用该接口拉取最近周期。
+- 行级动作兼容修复：前端日榜行的“入素材/去改写”已透传周期参数，后端服务与 API 同步兼容 `daily`，避免仅传 `week_key` 的旧约束导致失败。
+- GitHub 趋势文案与生成语义按周期切换：日榜显示“今日新增 Star”、周榜显示“本周新增 Star”；Top10 一键去改写标题/来源类型同步按日榜或周榜切换。
+- `GithubTrendsPage.css` 去除重复样式定义块，避免同选择器重复声明造成维护冲突。
+
+### Added
+- GitHub 趋势服务回归新增：`daily` 快照字段落库、`stars today` 解析、日周期列表查询覆盖。
+- GitHub 趋势 API 回归新增：`period_type=daily` 查询/刷新、`/periods` 日周期返回、行级 `add-item/build-item` 日榜请求覆盖。
+
+### Verification
+- `PYTHONPATH=src uv run pytest -q tests/test_github_trends_api.py tests/test_github_trends_service.py` 通过（20 passed）。
+- `PYTHONPATH=src uv run pytest -q tests/test_stream_interrupt_consistency.py` 通过（2 passed）。
+- `PYTHONPATH=src uv run pytest -q` 通过（150 passed）。
+- `cd frontend && npm run build` 通过。
+
 ## 2026-03-29
 
 ### Changed
@@ -23,6 +60,8 @@
 - 端到端流程图热点入口语义更新：`XHS 热点` 替换为 `Linux.do 热点`，并同步更新 Mermaid 源文件与导出的 SVG 展示图。
 - 流程说明文档同步口径：`docs/workflow-overview.zh-CN.md` 中的“可选热点入口”由 `GitHub/XHS` 更新为 `GitHub/Linux.do`。
 - GitHub 趋势中文页简介展示补齐回退：当 `description_zh` 缺失时，优先展示原始 `description`（英文），不再直接显示“暂无简介”。
+- 新增本地开发控制脚本 `scripts/dev_ctl.sh`：支持 `start/stop/restart/status/logs` 一键管理前后端进程，并统一维护 `data/backend-dev.pid`、`data/frontend-dev.pid` 与对应日志。
+- 中英文 README 新增一键运维用法，降低本地联调时的启动/停止成本。
 
 ### Added
 - 新增 Linux.do 回归用例：覆盖冷却窗口拦截、RSS 429 读取 `Retry-After` 后重试、429 重试耗尽后的限流返回。
@@ -46,6 +85,10 @@
 - `PYTHONPATH=src uv run pytest -q tests/test_linuxdo_trends_service.py tests/test_linuxdo_trends_api.py` 通过（16 passed）。
 - `cd frontend && npm run build` 通过。
 - `cd frontend && npm run build` 通过（GitHub 趋势简介回退逻辑修复后）。
+- `bash -n scripts/dev_ctl.sh` 通过。
+- `bash scripts/dev_ctl.sh status` 通过（可输出 backend/frontend 进程与端口状态）。
+- `bash scripts/dev_ctl.sh restart` 通过（重启命令链路可执行并产生日志）。
+- `bash scripts/dev_ctl.sh logs all 20` 通过（可读取前后端最近日志）。
 - `POST /api/linuxdo-trends/materials/add-item` 本地验证返回 `200`（topic 403 场景下已降级）。
 - `POST /api/linuxdo-trends/rewrite/build-item` 本地验证返回 `200`（topic 403 场景下已降级）。
 - `POST /api/linuxdo-trends/rewrite/build-item` 返回内容已确认不再包含 `## 观察点（可补充）` 与 `## 改写提示（可补充）`。
