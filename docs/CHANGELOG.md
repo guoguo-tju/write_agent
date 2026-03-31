@@ -9,6 +9,7 @@
 - GitHub 趋势中文化实现收口：日榜与周榜均执行简介中文翻译增强，不再仅周榜翻译。
 - GitHub 趋势翻译失败时新增中文降级文案（`该项目英文简介暂未完成中文翻译，请稍后重试。`），前端中文界面不再回退展示英文原文。
 - GitHub 趋势翻译链路超时治理：批量翻译请求超时从固定 45s 收敛为短超时，失败后直接中文降级，不再逐条长超时重试，避免刷新长期占锁导致 `409 更新中`。
+- 回收本地运维脚本曝光：移除中英文 README 中 `scripts/dev_ctl.sh` 的公开说明，并将该脚本从仓库跟踪中移除（保留为本地私有运维习惯，不作为项目功能对外承诺）。
 
 ### Verification
 - `rg -n "Spec Version|Last Updated|Hot Market Localization Rule|v1\\.2" docs/specs/development-spec-v1.md` 通过。

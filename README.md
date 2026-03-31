@@ -94,16 +94,6 @@ npm run dev
 - Backend docs: `http://127.0.0.1:8000/docs`
 - Suggested first run path: `Rewrite -> Review -> Covers -> Layout (/layout)`.
 
-### Optional: one-command start/stop/restart
-
-```bash
-bash scripts/dev_ctl.sh start
-bash scripts/dev_ctl.sh status
-bash scripts/dev_ctl.sh logs backend
-bash scripts/dev_ctl.sh restart
-bash scripts/dev_ctl.sh stop
-```
-
 Note: without `SILICONFLOW_API_KEY`, the main flow still runs, but writing-time RAG retrieval/citation is limited.
 
 ## Project Structure
