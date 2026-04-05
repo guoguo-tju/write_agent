@@ -293,6 +293,19 @@ class GitHubTrendingService:
         except Exception:
             return None
 
+    @staticmethod
+    def _normalize_translation_index(value: Any) -> Optional[int]:
+        if isinstance(value, int):
+            return value if value >= 0 else None
+        if isinstance(value, float) and value.is_integer():
+            normalized = int(value)
+            return normalized if normalized >= 0 else None
+        if isinstance(value, str):
+            compact = value.strip()
+            if compact.isdigit():
+                return int(compact)
+        return None
+
     def _translate_descriptions_to_zh_batch(self, texts: list[str]) -> dict[int, str]:
         if not texts:
             return {}
@@ -355,9 +368,9 @@ class GitHubTrendingService:
             for row in rows:
                 if not isinstance(row, dict):
                     continue
-                idx = row.get("index")
+                idx = self._normalize_translation_index(row.get("index"))
                 text_val = self._safe_text(str(row.get("translation", "")))
-                if isinstance(idx, int) and text_val and self._is_acceptable_zh(text_val):
+                if idx is not None and text_val and self._is_acceptable_zh(text_val):
                     translated[idx] = text_val
             return translated
         except Exception as error:
@@ -430,6 +443,17 @@ class GitHubTrendingService:
             logger.warning("GitHub 简介单条翻译失败，回退原文: %s", error)
             return None
 
+    def _translate_description_to_zh_single_with_retry(
+        self,
+        text_value: str,
+    ) -> Optional[str]:
+        attempts = max(1, int(TRANSLATION_SINGLE_RETRY_MAX))
+        for _ in range(attempts):
+            translated = self._translate_description_to_zh_single(text_value)
+            if translated:
+                return translated
+        return None
+
     def _enrich_description_zh(
         self,
         period_type: str,
@@ -460,18 +484,15 @@ class GitHubTrendingService:
         translated_map = self._translate_descriptions_to_zh_batch(
             [text for _, text in pending_pairs]
         )
-        single_retry_budget = TRANSLATION_SINGLE_RETRY_MAX
         for batch_index, (item_index, _original_text) in enumerate(pending_pairs):
             translated = self._safe_text(translated_map.get(batch_index, ""))
             if translated:
                 items[item_index].description_zh = translated
                 continue
-            if single_retry_budget > 0:
-                single_retry_budget -= 1
-                single = self._translate_description_to_zh_single(_original_text)
-                if single:
-                    items[item_index].description_zh = single
-                    continue
+            single = self._translate_description_to_zh_single_with_retry(_original_text)
+            if single:
+                items[item_index].description_zh = single
+                continue
             items[item_index].description_zh = self._zh_translation_fallback()
 
     def _request_headers(self) -> dict:

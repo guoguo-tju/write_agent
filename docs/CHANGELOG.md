@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-04-05
+
+### Changed
+- GitHub 趋势日榜交互修复：当所选日期暂无成功快照并回退到最近可用快照时，日期下拉不再被回写为回退日期，保留用户所选 `requested_period_key`，避免“选 4 月 3 日自动跳回 4 月 2 日”的错觉。
+- GitHub 趋势翻译稳态修复：批量翻译结果的 `index` 兼容字符串数字（如 `"0"`），避免模型返回字符串索引时被误丢弃。
+- GitHub 趋势补翻策略优化：单条补翻由“全局预算”改为“逐条重试”，确保每个未命中批量翻译的条目都能获得重试机会，不再出现前几条重试、后几条直接落入中文兜底文案的情况。
+- 新增 GitHub 趋势翻译回归用例：
+  - 缺失批量翻译时，待翻译条目会逐条触发单条补翻（不受全局预算限制）。
+  - 批量翻译响应 `index` 为字符串数字时可正确写回对应条目。
+
+### Verification
+- `PYTHONPATH=src uv run pytest -q tests/test_github_trends_service.py` 通过（17 passed）。
+- `cd frontend && npm run build` 通过。
 ## 2026-03-31
 
 ### Changed

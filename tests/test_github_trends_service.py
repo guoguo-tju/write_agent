@@ -49,6 +49,19 @@ class _FakeResponse:
             raise RuntimeError(f"http {self.status_code}")
 
 
+class _FakeLLMResponse:
+    def __init__(self, payload: dict, status_code: int = 200) -> None:
+        self._payload = payload
+        self.status_code = status_code
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"http {self.status_code}")
+
+    def json(self) -> dict:
+        return self._payload
+
+
 SAMPLE_HTML = """
 <html>
   <body>
@@ -69,6 +82,23 @@ SAMPLE_HTML = """
   </body>
 </html>
 """
+
+
+def _build_sample_html(rows: int, star_scope: str = "today") -> str:
+    blocks: list[str] = []
+    for idx in range(1, rows + 1):
+        blocks.append(
+            f"""
+    <article class="Box-row">
+      <h2><a href="/owner{idx}/repo{idx}"> owner{idx} / repo{idx} </a></h2>
+      <p>Awesome repository {idx}</p>
+      <span itemprop="programmingLanguage">Python</span>
+      <a href="/owner{idx}/repo{idx}/stargazers">{1000 + idx}</a>
+      <span class="d-inline-block float-sm-right">{100 + idx} stars {star_scope}</span>
+    </article>
+"""
+        )
+    return "<html><body>" + "".join(blocks) + "</body></html>"
 
 
 def _cleanup_tables() -> None:
@@ -269,6 +299,85 @@ def test_refresh_daily_missing_batch_translation_uses_single_retry(monkeypatch) 
 
     assert data["items"][0]["description_zh"] == "仓库一中文简介"
     assert data["items"][1]["description_zh"] == "单条补翻中文"
+
+
+def test_refresh_daily_missing_batch_translation_retries_each_item(monkeypatch) -> None:
+    _cleanup_tables()
+    service = get_github_trending_service()
+
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.requests.get",
+        lambda *args, **kwargs: _FakeResponse(_build_sample_html(5, "today")),
+    )
+    monkeypatch.setattr(service, "_translate_descriptions_to_zh_batch", lambda texts: {})
+    calls: list[str] = []
+
+    def _fake_single(text: str) -> str:
+        calls.append(text)
+        return f"单条补翻中文-{len(calls)}"
+
+    monkeypatch.setattr(service, "_translate_description_to_zh_single", _fake_single)
+
+    asyncio.run(service.refresh_snapshot("daily"))
+    data = service.get_snapshot(period_type="daily")
+
+    assert len(data["items"]) == 5
+    assert len(calls) == 5
+    assert [item["description_zh"] for item in data["items"]] == [
+        "单条补翻中文-1",
+        "单条补翻中文-2",
+        "单条补翻中文-3",
+        "单条补翻中文-4",
+        "单条补翻中文-5",
+    ]
+
+
+def test_batch_translation_accepts_string_index(monkeypatch) -> None:
+    _cleanup_tables()
+    service = get_github_trending_service()
+
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.os.getenv",
+        lambda key, default=None: None if key == "PYTEST_CURRENT_TEST" else os.environ.get(key, default),
+    )
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.settings.openai_api_key",
+        "test-key",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.settings.openai_model",
+        "test-model",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.settings.openai_base_url",
+        "https://api.example.com/v1",
+        raising=False,
+    )
+
+    llm_payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(
+                        [
+                            {"index": "0", "translation": "仓库一中文简介"},
+                            {"index": 1, "translation": "仓库二中文简介"},
+                        ],
+                        ensure_ascii=False,
+                    )
+                }
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.requests.post",
+        lambda *args, **kwargs: _FakeLLMResponse(llm_payload),
+    )
+
+    translated = service._translate_descriptions_to_zh_batch(["repo one", "repo two"])
+    assert translated == {0: "仓库一中文简介", 1: "仓库二中文简介"}
 
 
 def test_translation_cache_skips_fallback_value(monkeypatch) -> None:

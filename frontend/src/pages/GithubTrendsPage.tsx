@@ -200,11 +200,18 @@ export const GithubTrendsPage: React.FC = () => {
       });
       setSnapshot(data);
       setFeedback(null);
-      if (scope === "weekly" && data.week_key) {
-        setSelectedWeekKey(data.week_key);
+      if (scope === "weekly") {
+        const requestedWeekKey =
+          data.requested_period_key || data.requested_week_key || periodKey || data.week_key;
+        if (requestedWeekKey) {
+          setSelectedWeekKey(requestedWeekKey);
+        }
       }
-      if (scope === "daily" && data.period_key) {
-        setSelectedDayKey(data.period_key);
+      if (scope === "daily") {
+        const requestedDayKey = data.requested_period_key || periodKey || data.period_key;
+        if (requestedDayKey) {
+          setSelectedDayKey(requestedDayKey);
+        }
       }
     } catch (error) {
       console.error("加载趋势数据失败:", error);
