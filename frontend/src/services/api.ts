@@ -472,9 +472,13 @@ export const getGithubTrendPeriods = async (
 
 export const refreshGithubTrends = async (query?: {
   periodType?: "daily" | "weekly";
+  periodKey?: string;
+  retryUntranslatedOnly?: boolean;
 }): Promise<GithubTrendSnapshot> => {
   const response = await api.post<GithubTrendSnapshot>("/api/github-trends/refresh", {
     period_type: query?.periodType || "weekly",
+    period_key: query?.periodKey,
+    retry_untranslated_only: Boolean(query?.retryUntranslatedOnly),
   });
   return response.data;
 };

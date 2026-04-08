@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-04-08
+
+### Changed
+- GitHub 趋势简介补翻超时参数调优：单条翻译请求超时由 `4s` 调整为 `8s`，降低本地 OpenAI 兼容网关高峰抖动时的误降级概率。
+- 新增回归测试：校验 `_translate_description_to_zh_single` 使用放宽后的单条超时值，避免后续回归到过短超时导致“长期待翻译”。
+- GitHub 趋势中文质量判定规则放宽：允许“中文主干 + 大量英文技术名词/模型名”的翻译结果通过，修复 `system_prompts_leaks` 等条目因字母占比高被误判为“未翻译完成”的问题。
+- 新增回归测试：覆盖“技术名词较多但中文主干清晰”的翻译通过，以及“几乎全英文仅夹杂少量中文”仍被拒绝。
+
+### Verification
+- `PYTHONPATH=src uv run pytest -q tests/test_github_trends_service.py -k "single_translation_uses_relaxed_timeout or is_acceptable_zh or refresh_retry_untranslated_only_updates_fallback_rows"` 通过。
+
+## 2026-04-07
+
+### Changed
+- GitHub 趋势手动更新新增“补翻模式”：`POST /api/github-trends/refresh` 支持 `retry_untranslated_only=true`，可在指定 `period_key` 下仅重试未完成中文翻译条目，不再强制整榜抓取。
+- GitHub 趋势补翻服务能力新增：在同周期最新成功快照上仅更新 `description_zh`，已完成中文翻译条目保持不变，避免反复刷新导致不必要重算。
+- GitHub 趋势前端手动更新改为默认传入当前选中周期并启用补翻模式，优先解决“该项目英文简介暂未完成中文翻译，请稍后重试。”的遗留条目。
+- GitHub 趋势简介显示修复：当项目原始英文简介为空时，中文页不再误显示“翻译未完成”，改为“暂无简介”，避免把“无源文本”误判为“翻译失败”。
+- GitHub 趋势手动更新反馈优化：补翻完成后若仍有待翻译条目，前端提示会明确显示剩余条数，不再一律显示“已更新完成”。
+- 新增回归用例：
+  - API：校验 `retry_untranslated_only/period_key` 参数透传到服务层。
+  - Service：校验补翻模式只处理未完成条目，不触发整榜抓取。
+
+### Verification
+- `PYTHONPATH=src uv run pytest -q tests/test_github_trends_service.py tests/test_github_trends_api.py` 通过（28 passed）。
+- `cd frontend && npm run build` 失败（受既有改动影响，报错位于 `src/pages/covers/IllustrationsTab.tsx`，与本次 GitHub 趋势改动无直接关系）。
+- `cd frontend && npm run build` 通过（本次前端提示修复后，产物构建成功）。
+
 ## 2026-04-05
 
 ### Changed

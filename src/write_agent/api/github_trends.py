@@ -64,6 +64,9 @@ class GitHubTrendWeekOption(BaseModel):
 
 class GitHubTrendRefreshRequest(BaseModel):
     period_type: str = Field(default="weekly")
+    period_key: Optional[str] = None
+    week_key: Optional[str] = None
+    retry_untranslated_only: bool = False
 
 
 class AddItemMaterialRequest(BaseModel):
@@ -164,13 +167,27 @@ async def refresh_github_trends(request: GitHubTrendRefreshRequest = GitHubTrend
     with obs_scope(
         "API.GITHUB_TRENDS.REFRESH",
         "HTTP_SYNC",
-        entities={"period_type": request.period_type},
+        entities={
+            "period_type": request.period_type,
+            "period_key": request.period_key,
+            "week_key": request.week_key,
+            "retry_untranslated_only": request.retry_untranslated_only,
+        },
     ):
         try:
-            if request.period_type == "weekly":
+            requested_period_key = request.period_key or request.week_key
+            if (
+                request.period_type == "weekly"
+                and not requested_period_key
+                and not request.retry_untranslated_only
+            ):
                 snapshot = await service.refresh_current_week_snapshot()
             else:
-                snapshot = await service.refresh_snapshot(period_type=request.period_type)
+                snapshot = await service.refresh_snapshot(
+                    period_type=request.period_type,
+                    period_key=requested_period_key,
+                    retry_untranslated_only=request.retry_untranslated_only,
+                )
             snapshot_week_key = getattr(snapshot, "week_key", None)
             snapshot_period_key = getattr(snapshot, "period_key", None)
             data = service.get_snapshot(
@@ -187,6 +204,7 @@ async def refresh_github_trends(request: GitHubTrendRefreshRequest = GitHubTrend
                     "period_type": request.period_type,
                     "period_key": data.get("period_key"),
                 },
+                payload={"retry_untranslated_only": request.retry_untranslated_only},
             )
             return _build_snapshot_response(data)
         except RefreshInProgressError as error:

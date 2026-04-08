@@ -44,8 +44,15 @@ def test_refresh_supports_daily_period_type(monkeypatch) -> None:
 
     called = {}
 
-    async def fake_refresh_snapshot(period_type: str = "weekly"):
+    async def fake_refresh_snapshot(
+        period_type: str = "weekly",
+        *,
+        period_key: str | None = None,
+        retry_untranslated_only: bool = False,
+    ):
         called["period_type"] = period_type
+        called["period_key"] = period_key
+        called["retry_untranslated_only"] = retry_untranslated_only
 
     monkeypatch.setattr(github_trends_api.service, "refresh_snapshot", fake_refresh_snapshot)
     monkeypatch.setattr(
@@ -70,7 +77,60 @@ def test_refresh_supports_daily_period_type(monkeypatch) -> None:
     resp = client.post("/api/github-trends/refresh", json={"period_type": "daily"})
     assert resp.status_code == 200
     assert called["period_type"] == "daily"
+    assert called["period_key"] is None
+    assert called["retry_untranslated_only"] is False
     assert resp.json()["period_type"] == "daily"
+
+
+def test_refresh_supports_retry_untranslated_only(monkeypatch) -> None:
+    from write_agent.api import github_trends as github_trends_api
+
+    called = {}
+
+    async def fake_refresh_snapshot(
+        period_type: str = "weekly",
+        *,
+        period_key: str | None = None,
+        retry_untranslated_only: bool = False,
+    ):
+        called["period_type"] = period_type
+        called["period_key"] = period_key
+        called["retry_untranslated_only"] = retry_untranslated_only
+
+    monkeypatch.setattr(github_trends_api.service, "refresh_snapshot", fake_refresh_snapshot)
+    monkeypatch.setattr(
+        github_trends_api.service,
+        "get_snapshot",
+        lambda week_key=None, period_type="weekly", period_key=None: {
+            "week_key": "2026-W15",
+            "requested_week_key": week_key or "2026-W15",
+            "period_type": period_type,
+            "period_key": period_key or "2026-W15",
+            "snapshot_date": "2026-04-07",
+            "captured_at": "2026-04-07T09:05:00+08:00",
+            "is_weekly_archive": False,
+            "is_stale": False,
+            "is_refreshing": False,
+            "fetch_error": None,
+            "items": [],
+        },
+    )
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/github-trends/refresh",
+        json={
+            "period_type": "weekly",
+            "period_key": "2026-W15",
+            "retry_untranslated_only": True,
+        },
+    )
+    assert resp.status_code == 200
+    assert called == {
+        "period_type": "weekly",
+        "period_key": "2026-W15",
+        "retry_untranslated_only": True,
+    }
 
 
 def test_get_trends_response_shape(monkeypatch) -> None:

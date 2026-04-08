@@ -50,7 +50,8 @@ ENRICHMENT_EXTERNAL_LINK_MAX = 3
 DOC_LINK_KEYWORDS = ("doc", "docs", "guide", "manual", "wiki")
 ENRICHMENT_SECTION_HEADER = "## 仓库增强信息（自动抓取）"
 TRANSLATION_SINGLE_RETRY_MAX = 3
-TRANSLATION_SINGLE_TIMEOUT_SECONDS = 4.0
+# 单条补翻在本地网关场景下 4s 容易命中超时，放宽到 8s 降低误降级概率。
+TRANSLATION_SINGLE_TIMEOUT_SECONDS = 8.0
 
 
 class RefreshInProgressError(RuntimeError):
@@ -181,7 +182,16 @@ class GitHubTrendingService:
         if zh_count == 0:
             return False
         latin_count = len(re.findall(r"[A-Za-z]", text_value))
-        return latin_count <= max(12, zh_count * 2)
+        if latin_count == 0:
+            return True
+
+        # 兼容“中文主干 + 大量模型/术语英文名”的翻译结果，
+        # 同时拦截“几乎全英文，仅夹杂极少中文字符”的低质量输出。
+        total_alpha = zh_count + latin_count
+        zh_ratio = zh_count / total_alpha if total_alpha else 0.0
+        if zh_ratio < 0.12 and zh_count < 10:
+            return False
+        return True
 
     @staticmethod
     def _zh_translation_fallback() -> str:
@@ -1179,10 +1189,127 @@ class GitHubTrendingService:
             items=items,
         )
 
+    def _needs_translation_retry(self, description: str, description_zh: Optional[str]) -> bool:
+        original = self._safe_text(description)
+        translated = self._safe_text(description_zh)
+        fallback = self._zh_translation_fallback()
+        if not original:
+            return False
+        if translated == fallback:
+            return True
+        if self._is_acceptable_zh(translated):
+            return False
+        if self._is_acceptable_zh(original):
+            return translated != original
+        return True
+
+    def _retry_untranslated_descriptions_for_period(
+        self,
+        period_type: str,
+        period_key: Optional[str] = None,
+    ) -> GitHubTrendingSnapshot:
+        mode = self._normalize_period_type(period_type)
+        normalized_period_key = self._normalize_period_key(mode, period_key)
+        with Session(engine) as session:
+            snapshot = session.exec(
+                select(GitHubTrendingSnapshot)
+                .where(
+                    GitHubTrendingSnapshot.period_type == mode,
+                    GitHubTrendingSnapshot.period_key == normalized_period_key,
+                    GitHubTrendingSnapshot.fetch_status == "success",
+                )
+                .order_by(desc(GitHubTrendingSnapshot.captured_at))
+            ).first()
+            if snapshot is None:
+                raise ValueError(f"{mode} 数据不存在: {normalized_period_key}")
+
+            rows = session.exec(
+                select(GitHubTrendingItem)
+                .where(GitHubTrendingItem.snapshot_id == snapshot.id)
+                .order_by(GitHubTrendingItem.rank)
+            ).all()
+            if not rows:
+                raise ValueError(f"{mode} 数据为空: {normalized_period_key}")
+
+            row_ids: list[int] = []
+            payload_items: list[TrendingItemPayload] = []
+            for row in rows:
+                if row.id is None:
+                    continue
+                row_ids.append(int(row.id))
+                payload_items.append(
+                    TrendingItemPayload(
+                        rank=row.rank,
+                        repo_full_name=row.repo_full_name,
+                        repo_name=row.repo_name,
+                        owner=row.owner,
+                        description=row.description or "",
+                        description_zh=row.description_zh or None,
+                        repo_url=row.repo_url,
+                        stars_this_week=row.stars_this_week,
+                        language=row.language,
+                        total_stars=row.total_stars,
+                    )
+                )
+
+        pending_before = sum(
+            1
+            for item in payload_items
+            if self._needs_translation_retry(item.description, item.description_zh)
+        )
+        if pending_before == 0:
+            logger.info(
+                "GitHub 趋势补翻跳过：%s/%s 无未完成中文翻译条目",
+                mode,
+                normalized_period_key,
+            )
+            return snapshot
+
+        self._enrich_description_zh(mode, normalized_period_key, payload_items)
+        pending_after = sum(
+            1
+            for item in payload_items
+            if self._needs_translation_retry(item.description, item.description_zh)
+        )
+        now = datetime.now(self.timezone)
+
+        with Session(engine) as session:
+            persisted_snapshot = session.exec(
+                select(GitHubTrendingSnapshot).where(GitHubTrendingSnapshot.id == snapshot.id)
+            ).first()
+            if persisted_snapshot is None:
+                raise ValueError(f"{mode} 数据不存在: {normalized_period_key}")
+
+            for row_id, item in zip(row_ids, payload_items):
+                session.exec(
+                    update(GitHubTrendingItem)
+                    .where(GitHubTrendingItem.id == row_id)
+                    .values(description_zh=item.description_zh)
+                )
+
+            persisted_snapshot.captured_at = now
+            session.commit()
+            session.refresh(persisted_snapshot)
+
+        logger.info(
+            "GitHub 趋势补翻完成：%s/%s before=%s after=%s",
+            mode,
+            normalized_period_key,
+            pending_before,
+            pending_after,
+        )
+        return persisted_snapshot
+
     async def refresh_current_week_snapshot(self) -> GitHubTrendingSnapshot:
         return await self.refresh_snapshot("weekly")
 
-    async def refresh_snapshot(self, period_type: str = "weekly") -> GitHubTrendingSnapshot:
+    async def refresh_snapshot(
+        self,
+        period_type: str = "weekly",
+        *,
+        period_key: Optional[str] = None,
+        retry_untranslated_only: bool = False,
+    ) -> GitHubTrendingSnapshot:
         with obs_scope("SVC.GITHUB_TRENDS.REFRESH", "WORKFLOW_NODE"):
             if self.refresh_lock.locked():
                 raise RefreshInProgressError("GitHub 趋势更新中")
@@ -1192,9 +1319,20 @@ class GitHubTrendingService:
                 emit_obs_event(
                     level="INFO",
                     message="svc.github_trends.refresh.start",
-                    payload={"period_type": mode},
+                    payload={
+                        "period_type": mode,
+                        "period_key": period_key or "",
+                        "retry_untranslated_only": bool(retry_untranslated_only),
+                    },
                 )
-                snapshot = await asyncio.to_thread(self._fetch_and_persist_period, mode)
+                if retry_untranslated_only:
+                    snapshot = await asyncio.to_thread(
+                        self._retry_untranslated_descriptions_for_period,
+                        mode,
+                        period_key,
+                    )
+                else:
+                    snapshot = await asyncio.to_thread(self._fetch_and_persist_period, mode)
                 bind_entities({"week_key": snapshot.week_key, "period_key": snapshot.period_key})
                 emit_obs_event(
                     level="INFO",
@@ -1204,6 +1342,7 @@ class GitHubTrendingService:
                         "snapshot_date": snapshot.snapshot_date.isoformat(),
                         "period_type": snapshot.period_type,
                         "period_key": snapshot.period_key,
+                        "retry_untranslated_only": bool(retry_untranslated_only),
                     },
                 )
                 return snapshot

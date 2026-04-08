@@ -34,6 +34,7 @@ from write_agent.models import (
 )
 from write_agent.services.github_trending_service import (
     EnrichmentMeta,
+    TRANSLATION_SINGLE_TIMEOUT_SECONDS,
     get_github_trending_service,
 )
 from write_agent.services.material_service import engine
@@ -380,6 +381,85 @@ def test_batch_translation_accepts_string_index(monkeypatch) -> None:
     assert translated == {0: "仓库一中文简介", 1: "仓库二中文简介"}
 
 
+def test_single_translation_uses_relaxed_timeout(monkeypatch) -> None:
+    service = get_github_trending_service()
+
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.os.getenv",
+        lambda key, default=None: None if key == "PYTEST_CURRENT_TEST" else os.environ.get(key, default),
+    )
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.settings.openai_api_key",
+        "test-key",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.settings.openai_model",
+        "test-model",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.settings.openai_base_url",
+        "http://localhost:8317",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.settings.openai_timeout_seconds",
+        60.0,
+        raising=False,
+    )
+
+    captured: dict[str, float] = {}
+
+    class _FakeSession:
+        trust_env = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def post(self, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+            return _FakeLLMResponse(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "简体中文翻译"
+                            }
+                        }
+                    ]
+                }
+            )
+
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.requests.Session",
+        lambda: _FakeSession(),
+    )
+
+    translated = service._translate_description_to_zh_single("Open-source voice AI")
+
+    assert translated == "简体中文翻译"
+    assert captured["timeout"] == TRANSLATION_SINGLE_TIMEOUT_SECONDS
+
+
+def test_is_acceptable_zh_allows_tech_terms_with_chinese_backbone() -> None:
+    service = get_github_trending_service()
+    translated = (
+        "提取自 ChatGPT (GPT-5.4, GPT-5.3, Codex)、Claude (Opus 4.6, Sonnet 4.6, Claude Code)、"
+        "Gemini (3.1 Pro, 3 Flash, CLI)、Grok (4.2, 4)、Perplexity 等的系统提示词。定期更新。"
+    )
+    assert service._is_acceptable_zh(translated) is True
+
+
+def test_is_acceptable_zh_rejects_mostly_english_output() -> None:
+    service = get_github_trending_service()
+    translated = "ChatGPT GPT-5.4 Claude Opus Gemini 3.1 Flash Grok Perplexity 中文"
+    assert service._is_acceptable_zh(translated) is False
+
+
 def test_translation_cache_skips_fallback_value(monkeypatch) -> None:
     _cleanup_tables()
     service = get_github_trending_service()
@@ -417,6 +497,85 @@ def test_translation_cache_skips_fallback_value(monkeypatch) -> None:
 
     cache = service._load_period_translation_cache("daily", "2026-03-31")
     assert cache == {}
+
+
+def test_refresh_retry_untranslated_only_updates_fallback_rows(monkeypatch) -> None:
+    _cleanup_tables()
+    service = get_github_trending_service()
+    fallback_value = service._zh_translation_fallback()
+    target_day = "2026-03-31"
+
+    with Session(engine) as session:
+        snapshot = GitHubTrendingSnapshot(
+            week_key=target_day,
+            period_type="daily",
+            period_key=target_day,
+            snapshot_date=datetime.fromisoformat(target_day).date(),
+            fetch_status="success",
+            is_weekly_archive=False,
+        )
+        session.add(snapshot)
+        session.commit()
+        session.refresh(snapshot)
+
+        session.add(
+            GitHubTrendingItem(
+                snapshot_id=snapshot.id,
+                rank=1,
+                repo_full_name="owner1/repo1",
+                repo_name="repo1",
+                owner="owner1",
+                description="Already translated",
+                description_zh="已有中文简介",
+                repo_url="https://github.com/owner1/repo1",
+                stars_this_week=100,
+                language="Python",
+                total_stars=1000,
+            )
+        )
+        session.add(
+            GitHubTrendingItem(
+                snapshot_id=snapshot.id,
+                rank=2,
+                repo_full_name="owner2/repo2",
+                repo_name="repo2",
+                owner="owner2",
+                description="Needs translation",
+                description_zh=fallback_value,
+                repo_url="https://github.com/owner2/repo2",
+                stars_this_week=90,
+                language="TypeScript",
+                total_stars=900,
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(
+        "write_agent.services.github_trending_service.requests.get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("should not fetch trending html")),
+    )
+
+    pending_texts: list[str] = []
+
+    def _fake_batch(texts: list[str]) -> dict[int, str]:
+        pending_texts.extend(texts)
+        return {0: "补翻后的中文简介"}
+
+    monkeypatch.setattr(service, "_translate_descriptions_to_zh_batch", _fake_batch)
+    monkeypatch.setattr(service, "_translate_description_to_zh_single", lambda text: None)
+
+    asyncio.run(
+        service.refresh_snapshot(
+            "daily",
+            period_key=target_day,
+            retry_untranslated_only=True,
+        )
+    )
+    data = service.get_snapshot(period_type="daily", period_key=target_day)
+
+    assert pending_texts == ["Needs translation"]
+    assert data["items"][0]["description_zh"] == "已有中文简介"
+    assert data["items"][1]["description_zh"] == "补翻后的中文简介"
 
 
 def test_list_daily_periods_returns_recent_7_days(monkeypatch) -> None:

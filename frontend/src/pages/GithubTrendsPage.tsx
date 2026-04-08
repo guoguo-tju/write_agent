@@ -54,15 +54,43 @@ const formatDateTime = (value: string, locale: string) => {
   return date.toLocaleString(locale);
 };
 
+const TRANSLATION_PENDING_FALLBACK = "该项目英文简介暂未完成中文翻译，请稍后重试。";
+
+const hasChineseChars = (value: string): boolean => /[\u4e00-\u9fff]/.test(value);
+
 const pickDescription = (item: GithubTrendItem, lang: "zh" | "en"): string => {
   const original = item.description?.trim() || "";
   const translated = item.description_zh?.trim() || "";
-  const hasChinese = /[\u4e00-\u9fff]/.test(original);
+  const hasChinese = hasChineseChars(original);
 
   if (lang === "zh") {
-    return translated || (hasChinese ? original : "该项目英文简介暂未完成中文翻译，请稍后重试。");
+    if (translated) {
+      return translated;
+    }
+    if (!original) {
+      return "暂无简介";
+    }
+    return hasChinese ? original : TRANSLATION_PENDING_FALLBACK;
   }
   return original || translated || "No description";
+};
+
+const needsTranslationRetry = (item: GithubTrendItem): boolean => {
+  const original = item.description?.trim() || "";
+  const translated = item.description_zh?.trim() || "";
+  if (!original) {
+    return false;
+  }
+  if (translated === TRANSLATION_PENDING_FALLBACK) {
+    return true;
+  }
+  if (hasChineseChars(translated)) {
+    return false;
+  }
+  if (hasChineseChars(original)) {
+    return translated !== original;
+  }
+  return true;
 };
 
 const markdownForDigest = (scope: TrendScope, periodKey: string, items: GithubTrendItem[]) => {
@@ -311,7 +339,12 @@ export const GithubTrendsPage: React.FC = () => {
 
     setIsRefreshing(true);
     try {
-      const data = await refreshGithubTrends({ periodType: trendScope });
+      const selectedPeriodKey = trendScope === "daily" ? selectedDayKey : selectedWeekKey;
+      const data = await refreshGithubTrends({
+        periodType: trendScope,
+        periodKey: selectedPeriodKey,
+        retryUntranslatedOnly: true,
+      });
       setSnapshot(data);
       if (trendScope === "daily") {
         setSelectedDayKey(data.period_key || selectedDayKey);
@@ -320,10 +353,12 @@ export const GithubTrendsPage: React.FC = () => {
         setSelectedWeekKey(data.week_key);
         await loadWeeks();
       }
+      const pendingCount = (data.items || []).filter((item) => needsTranslationRetry(item)).length;
       setFeedback({
-        kind: "success",
-        message:
-          trendScope === "daily"
+        kind: pendingCount > 0 ? "info" : "success",
+        message: pendingCount > 0
+          ? tf(trendsText.refreshRetryPending, { count: pendingCount })
+          : trendScope === "daily"
             ? trendsText.refreshSuccessDaily
             : trendsText.refreshSuccessWeekly,
       });
