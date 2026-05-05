@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-05-05
+
+### Changed
+- 新增默认风格 seed 机制：后端启动时自动从仓库内 `src/write_agent/config/defaults/*.json` 补齐写作风格与封面风格，确保新用户拉取项目后可直接使用预置默认项。
+- 默认 seed 采用“按名称补齐、已存在不覆盖”的幂等策略，避免覆盖本地用户已编辑/已删除同名风格。
+- 新增默认风格数据资产：
+  - 写作风格 4 条（来自本地手动录入常用项）。
+  - 封面风格 5 条（封面提示词常用项）。
+- 新增回归测试：覆盖 seed 初始化幂等与“同名不覆盖”行为，防止后续回归导致重复写入或误覆盖。
+
+### Verification
+- `PYTHONPATH=src uv run pytest -q tests/test_default_style_seed_service.py` 通过。
+- `PYTHONPATH=src uv run pytest -q tests/test_api_regressions.py -k "manual_cover_rewrite_creates_default_style_once"` 通过。
+
 ## 2026-04-08
 
 ### Changed

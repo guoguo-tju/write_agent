@@ -1,0 +1,32 @@
+[
+  {
+    "name": "手绘风格封面图",
+    "description": "手绘风格",
+    "prompt_template": "请根据提供的内容创建一张吸引眼球的公众号封面图，遵循以下规范：\n视觉风格\n- 手绘插画风格，比例为 2.35:1（公众号封面标准尺寸）\n- 色彩鲜明、对比强烈，确保在小尺寸预览时依然醒目\n- 风格统一，避免写实元素，保持整体手绘质感\n构图要求\n- 主视觉元素居中或偏左（右侧预留标题区域）\n- 添加 1-2 个简洁的卡通形象、图标或知名人物剪影，增强记忆点\n- 若涉及敏感或版权人物，用风格相似的替代形象，不得拒绝生成\n- 大量留白，突出核心信息，避免画面拥挤\n文字处理\n- 标题文字大而醒目，控制在 8 字以内\n- 可添加 1 行副标题或关键词标签\n- 字体风格与手绘插画协调统一\n吸引力法则\n- 使用悬念、数字、痛点等钩子元素激发点击欲望\n- 视觉元素夸张有反差\n- 色彩搭配参考爆款封面：橙黄、蓝紫、红黑等高对比组合\n语言\n- 除非另有说明，默认使用中文\n请根据输入内容生成封面图。",
+    "is_active": 1
+  },
+  {
+    "name": "极客风ASCII字符海报",
+    "description": "极客风ASCII字符海报",
+    "prompt_template": "Role\nSwiss-ASCII Art Director (瑞士极简 ASCII 艺术总监)\nSkills\n- Swiss Layout Mastery: 精通 Armin Hofmann 的网格系统，善于利用极细线条 (Hairlines) 切割空间。\n- High-Fidelity ASCII: 能够构思高精度、具象化的 ASCII 字符画，利用字符堆叠 (#*+.) 模拟真实的体积感和纹理。\n- Negative Space Control: 驾驭全黑背景与留白的平衡，确保视觉焦点集中。\nAction\nDesign a \"Swiss Design x ASCII\" poster that is mathematically precise and visually striking.\nConstraints (关键约束 - 必须严格执行)\n- Composition: FULL BLEED ONLY (全出血). The background color must extend to the very edge of the canvas.\n  - 🚫 NO Borders (无边框)\n  - 🚫 NO Frames (无画框)\n  - 🚫 NO \"Picture-in-Picture\" effects (无画中画)\n  - 🚫 NO Margins (无白边)\n- Visual Subject:\n  - Must be a Concrete Object (具象物体) formed by Glowing White ASCII Characters.\n  - 🚫 No abstract blobs. The shape and texture (e.g., leaves, skin) must be recognizable.\n- Grid System:\n  - Use exactly 1-2 Ultra-Thin White Lines that span the Entire Canvas (Edge-to-Edge).\n- Typography:\n  - Font: Helvetica / Inter / Mono Spec (White, Sans-Serif).\n  - Mandatory Text: You MUST include the phrase \"Thought for a while\".\n  - Alignment: All text must strictly align with the grid lines.\nPrompt Template (复制此模板使用)\nSwiss Design poster, Armin Hofmann style. CRITICAL: FULL BLEED, EDGE-TO-EDGE SOLID BLACK BACKGROUND. NO BORDERS, NO FRAMES, NO MARGINS.\n[Visual Subject]: A sharp, volumetric, GLOWING WHITE ASCII art [Insert Object Name] (characters # * + . `). The ASCII representation must be CONCRETE and DETAILED, clearly showing [Specific Details/Textures].\n[Layout]: Minimalist grid. Use 1-2 ULTRA-THIN, HAIRLINE WHITE structural lines that extend fully across the canvas.\n[Typography]: Clean white Sans-Serif. Strictly aligned to grid lines.\n- Main Title: '[Insert Title]' (Bold, Graphic).\n- Detail: '[Insert Number/Date]' (Small, Precision).\n- Fixed Text: 'Thought for a while' (Balanced asymmetrically).\nAtmosphere: High contrast, digital luminescence, mathematical order, silence.",
+    "is_active": 1
+  },
+  {
+    "name": "极简线条图风格",
+    "description": "极简线条图风格",
+    "prompt_template": "1. 风格调性\n极简主义黑白漫画手稿风格。核心气质是原生的、粗糙的、稀疏的、表现主义的速写。强调留白与高对比度的视觉张力，带有独立图画小说的艺术实验感。\n2. 视觉逻辑\n- 构图模式：多格漫画页面排版。使用带有圆角的手绘不规则边框将画面分割为不同的面板（Panel）。\n- 空间构建：极其平面化的二维视角。不追求透视准确性，通过线条的疏密排列和剪影来暗示空间关系。利用大量负空间（Negative Space）构成画面主体。\n3. 视觉渲染\n- 线条技法：极具手感和偶然性的线条。线条不闭合，边缘粗糙。\n- 材质质感：高对比度，无中间调。\n4. 色彩系统\n- 单色系统。\n- 背景色：米白色/灰白色的纸张基调 。\n- 前景色：灰黑色\n5. 负向约束推导\n严禁出现任何彩色或灰阶。严禁使用平滑的矢量线条、数字渐变或喷枪效果。避免精确的几何形状、直线尺规作图痕迹以及写实风格的光影和细节描绘。\n6. 故事内容\n请基于以上风格，绘制用户输入的内容",
+    "is_active": 1
+  },
+  {
+    "name": "票据风格的提示词",
+    "description": null,
+    "prompt_template": "帮我根据下面的设计风格要求和内容要求,生成一张中文的封面海报, 尺寸是1:1,不要有大段文字：\n\n设计风格要求：\n运用3-4种不同字号创造层次感,关键词使用最大字号\n主标题字号需要比副标题和介绍大三倍以上,采用网格排版,类似高级杂志\n文字与装饰元素间保持和谐的比例关系\n确保视觉流向清晰,引导读者目光移动\n数字极简票券风设计风格\n黑白对比主导：高度对比的黑白配色方案,形成强烈视觉冲击\n票券化布局：类似登机牌、门票或电子凭证的结构设计\n几何分区明确：画面被精确划分为信息区块,井然有序\n留白艺术运用：大量有效留白提升整体通透感和优雅度\n东西方美学融合：结合中文传统排版与西方现代设计语言\n工业设计感：注册商标符号、条形码等商业元素的精致运用\n数字界面映射：模拟电子屏幕或应用界面的信息呈现方式\n文字排版风格\n中英混排对比：中英文字体混合使用,创造文化融合感\n尺寸层级分明：主标题大号处理,副文本精致小巧\n多向排列组合：包含横排、竖排、斜排等多方向文字布局\n间距精确控制：字符间距和行距经过精心计算,保持呼吸感\n符号化装饰：括号、下划线、箭头融入文字设计\n衬线与非衬线混搭：不同字体家族交替使用,增强层次感\n时间信息格式化：日期标注采用统一格式,搭配方向指示符\n视觉元素风格\n功能性指示符：各类箭头、星号作为视觉引导和强调\nUI元素借鉴：\"CHECK IN\"、\"@\"等数字界面元素的平面化应用\n边框与分割线：简洁线条用于区隔不同信息区域\n简约图形符号：最小化的设计符号传达核心信息\n手写风点缀：如\"Romantic\"的手写体为机械排版增添人文温度\n方向性视觉流动：通过元素排布创造从左到右、从上到下的阅读节奏\n负空间利用：将空白区域视为积极设计元素的一部分\n\n文案内容为：[在这里填写你的文案或者标题]",
+    "is_active": 1
+  },
+  {
+    "name": "极简的手绘草图",
+    "description": "极简的手绘草图",
+    "prompt_template": "#角色\n\n你是一位专业的视觉笔记艺术家和信息设计师。\n\n#任务\n\n根据我提供的文本内容，创建一个清晰、简洁的视觉笔记风格手绘草图图像，旨在帮助读者快速掌握其内在逻辑和核心要点。\n\n#步骤\n\n- 阅读并提取\"关键节点\"（角色/行动/结果/条件），按流程或因果关系进行组织；\n- 使用简洁的中文关键词为关键节点命名，确保拼写正确且易于理解；\n- 按照#核心要求创建图像；\n- 使生成的效果更加简洁。\n\n#核心要求\n\n- 视觉风格：严格遵循视觉笔记手绘风格。所有元素都应具有手写感。使用干净、极简的线条，搭配1-2个简单的图标。整体感觉应像用黑色记号笔在白板或笔记本上绘制。\n    \n- 构图与布局：整体布局必须清晰、简洁且逻辑性强，自然引导读者的视线。整体布局不应严格遵循从左到右或从上到下的顺序；合理自由地安排元素，确保元素之间有足够的留白。严格避免箭头重叠；确保视觉效果不杂乱。\n    \n- 颜色：使用黑色和白色, 顺带一些略微的彩色，保持整体简洁性；纯白色背景，高对比度；无渐变、无阴影、无照片/3D/拟物化效果。\n    \n\n#输出目标\n\n生成一个极简的手绘草图，解释原始文本的核心思想，让任何看到图像的人都能快速掌握主要要点, 语言使用中文, 分辨率2k",
+    "is_active": 1
+  }
+]

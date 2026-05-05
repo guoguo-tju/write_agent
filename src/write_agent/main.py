@@ -33,6 +33,7 @@ from write_agent.services.linuxdo_trending_service import (
     get_linuxdo_trending_service,
 )
 from write_agent.services.workflow_job_service import get_workflow_job_service
+from write_agent.services.default_style_seed_service import bootstrap_default_styles
 
 # 初始化日志
 settings = get_settings()
@@ -210,6 +211,12 @@ async def lifespan(app: FastAPI):
     # 启动时执行
     validate_registry()
     logger.info("🚀 写作智能体 API 启动中...")
+    seed_result = bootstrap_default_styles()
+    logger.info(
+        "默认风格初始化完成: writing=%s, cover=%s",
+        seed_result["inserted_writing_styles"],
+        seed_result["inserted_cover_styles"],
+    )
     workflow_job_service = get_workflow_job_service()
     workflow_job_service.start()
     recovered_jobs = workflow_job_service.resume_stale_jobs()
